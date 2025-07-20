@@ -15,7 +15,7 @@ SECRET = 'tB87#kPtkxqOS2'
 
 class PaginationView(discord.ui.View):
     def __init__(self, chunks: List[discord.Embed], author_id: int):
-        super().__init__(timeout=180.0)
+        super().__init__(timeout=7200)
         self.chunks = chunks
         self.current_page = 0
         self.message = None
@@ -1493,7 +1493,7 @@ class RemoveMemberModal(discord.ui.Modal):
 
 class AllianceSelectView(discord.ui.View):
     def __init__(self, alliances_with_counts, cog=None, page=0):
-        super().__init__(timeout=180)
+        super().__init__(timeout=7200)
         self.alliances = alliances_with_counts
         self.cog = cog
         self.page = page
@@ -1710,7 +1710,7 @@ class FIDSearchModal(discord.ui.Modal):
 
 class MemberSelectView(discord.ui.View):
     def __init__(self, members, source_alliance_name, cog, page=0):
-        super().__init__(timeout=180)
+        super().__init__(timeout=7200)
         self.members = members
         self.source_alliance_name = source_alliance_name
         self.cog = cog
