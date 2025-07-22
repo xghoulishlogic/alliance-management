@@ -36,7 +36,7 @@ test-bot-docker:
   variables:
     GIT_STRATEGY: clone
   before_script:
-    - apt-get update && apt-get install -y git
+    - apt-get update && apt-get install -y git procps
     - python --version
   script:
     - echo "Testing bot startup in Docker (Debian)..."
@@ -122,7 +122,7 @@ test-bot-docker:
 test-bot-linux:
   stage: test
   tags:
-    - linux
+    - shell
   cache:
     paths:
       - .cache/pip
