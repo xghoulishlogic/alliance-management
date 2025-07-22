@@ -18,7 +18,9 @@ sync_from_github:
     - docker
   script:
     - echo "Starting clean-room sync..."
-    - git clone --mirror $GITHUB_REPO_URL .
+    - git init --bare
+    - git remote add origin $GITHUB_REPO_URL
+    - git fetch --mirror origin
     - git push --mirror "https://gitlab-ci:${GITLAB_PUSH_TOKEN}@${CI_PROJECT_URL#https://}"
     - echo "Sync complete."
   rules:
