@@ -1,30 +1,23 @@
 # .gitlab-ci.yml
 
+variables:
+  GITHUB_REPO_URL: "https://github.com/whiteout-project/bot.git"
+  GIT_STRATEGY: none
+
 sync_from_github:
   stage: deploy
-  image: alpine/git:latest
+  image:
+    name: alpine/git:latest
+    entrypoint: [""]
 
   tags:
     - docker
 
-  variables:
-    GITHUB_REPO_URL: "https://github.com/whiteout-project/bot.git"
-
   script:
-    - echo "Starting sync from GitHub..."
-
-    # Clone the source repository from GitHub as a mirror.
+    - echo "Starting clean-room sync..."
     - git clone --mirror $GITHUB_REPO_URL .
-
-    # Set the push URL to the current GitLab project.
-    - git remote set-url --push origin "https://${CI_REGISTRY_USER}:${CI_JOB_TOKEN}@${CI_PROJECT_URL#https://}.git"
-
-    # Push the mirror to the GitLab repository.
-    - echo "Pushing mirror to GitLab at ${CI_PROJECT_URL}..."
-    - git push --mirror origin
-
+    - git push --mirror "https://gitlab-ci:${GITLAB_PUSH_TOKEN}@${CI_PROJECT_URL#https://}"
     - echo "Sync complete."
 
   rules:
-    # Run ONLY when triggered by a webhook.
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
