@@ -1,23 +1,201 @@
 # .gitlab-ci.yml
 
+stages:
+  - sync
+  - test
+
 variables:
   GITHUB_REPO_URL: "https://github.com/whiteout-project/bot.git"
   GIT_STRATEGY: none
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
 sync_from_github:
-  stage: deploy
+  stage: sync
   image:
     name: alpine/git:latest
     entrypoint: [""]
-
   tags:
     - docker
-
   script:
     - echo "Starting clean-room sync..."
     - git clone --mirror $GITHUB_REPO_URL .
     - git push --mirror "https://gitlab-ci:${GITLAB_PUSH_TOKEN}@${CI_PROJECT_URL#https://}"
     - echo "Sync complete."
-
   rules:
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
+
+# Docker-based test (Debian base)
+test-bot-docker:
+  stage: test
+  image: python:3.12-slim-bookworm
+  tags:
+    - docker
+  cache:
+    paths:
+      - .cache/pip
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - apt-get update && apt-get install -y git
+    - python --version
+  script:
+    - echo "Testing bot startup in Docker (Debian)..."
+    - echo "$CI_BOT_TOKEN" > bot_token.txt
+    
+    - |
+      python main.py > bot_output.log 2>&1 &
+      BOT_PID=$!
+      echo $BOT_PID > .bot_pid
+      
+      # Monitor output for success indicators
+      TIMEOUT=30
+      START_TIME=$(date +%s)
+      
+      while true; do
+        CURRENT_TIME=$(date +%s)
+        ELAPSED=$((CURRENT_TIME - START_TIME))
+        
+        if [ $ELAPSED -gt $TIMEOUT ]; then
+          echo "Timeout waiting for bot initialization"
+          kill $BOT_PID 2>/dev/null || true
+          cat bot_output.log
+          exit 1
+        fi
+        
+        # Check if bot is still running
+        if ! ps -p $BOT_PID > /dev/null; then
+          echo "Bot process terminated unexpectedly"
+          cat bot_output.log
+          exit 1
+        fi
+        
+        # Check for all success indicators
+        if grep -q "✓ All requirements satisfied" bot_output.log && \
+           grep -q "✓ All core imports successful" bot_output.log && \
+           grep -q "Logged in as" bot_output.log && \
+           grep -q "Activation messages sent to admin user." bot_output.log; then
+          echo "Bot initialization successful!"
+          break
+        fi
+        
+        # Check ONNX model if gift_solver.txt exists
+        if [ -f log/gift_solver.txt ]; then
+          if grep -q "ONNX model test successful. Model ready for captcha solving." log/gift_solver.txt; then
+            echo "ONNX model initialized successfully!"
+          fi
+        fi
+        
+        sleep 1
+      done
+      
+      # Show final status
+      echo "=== Bot started successfully ==="
+      grep "Logged in as" bot_output.log
+      grep "Activation messages" bot_output.log
+  after_script:
+    - |
+      if [ -f .bot_pid ]; then
+        kill $(cat .bot_pid) 2>/dev/null || true
+        sleep 2
+        kill -9 $(cat .bot_pid) 2>/dev/null || true
+      fi
+    - echo "=== Final Logs ==="
+    - cat bot_output.log || true
+    - echo "=== Gift Solver Log ==="
+    - cat log/gift_solver.txt || true
+  artifacts:
+    when: always
+    paths:
+      - bot_output.log
+      - log/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - "**/*.py"
+        - ".gitlab-ci.yml"
+        - "requirements.txt"
+
+# Linux native test (Debian runner)
+test-bot-linux:
+  stage: test
+  tags:
+    - linux
+  cache:
+    paths:
+      - .cache/pip
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - python3 --version
+    # No venv - bot detects CI
+  script:
+    - echo "Testing bot startup on Linux (native)..."
+    - echo "$CI_BOT_TOKEN" > bot_token.txt
+    
+    - |
+      python3 main.py > bot_output.log 2>&1 &
+      BOT_PID=$!
+      echo $BOT_PID > .bot_pid
+      
+      TIMEOUT=30
+      START_TIME=$(date +%s)
+      
+      while true; do
+        CURRENT_TIME=$(date +%s)
+        ELAPSED=$((CURRENT_TIME - START_TIME))
+        
+        if [ $ELAPSED -gt $TIMEOUT ]; then
+          echo "Timeout waiting for bot initialization"
+          kill $BOT_PID 2>/dev/null || true
+          cat bot_output.log
+          exit 1
+        fi
+        
+        if ! ps -p $BOT_PID > /dev/null; then
+          echo "Bot process terminated unexpectedly"
+          cat bot_output.log
+          exit 1
+        fi
+        
+        if grep -q "✓ All requirements satisfied" bot_output.log && \
+           grep -q "✓ All core imports successful" bot_output.log && \
+           grep -q "Logged in as" bot_output.log && \
+           grep -q "Activation messages sent to admin user." bot_output.log; then
+          echo "Bot initialization successful!"
+          break
+        fi
+        
+        sleep 1
+      done
+      
+      echo "=== Bot started successfully ==="
+      grep "Logged in as" bot_output.log
+      grep "Activation messages" bot_output.log
+  after_script:
+    - |
+      if [ -f .bot_pid ]; then
+        kill $(cat .bot_pid) 2>/dev/null || true
+        sleep 2
+        kill -9 $(cat .bot_pid) 2>/dev/null || true
+      fi
+    - echo "=== Final Logs ==="
+    - cat bot_output.log || true
+    - echo "=== Gift Solver Log ==="
+    - cat log/gift_solver.txt || true
+  artifacts:
+    when: always
+    paths:
+      - bot_output.log
+      - log/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - "**/*.py"
+        - ".gitlab-ci.yml"
+        - "requirements.txt"
