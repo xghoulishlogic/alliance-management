@@ -18,9 +18,7 @@ sync_from_github:
     - docker
   script:
     - echo "Starting clean-room sync..."
-    - git init --bare
-    - git remote add origin $GITHUB_REPO_URL
-    - git fetch --mirror origin
+    - git clone --mirror $GITHUB_REPO_URL .
     - git push --mirror "https://gitlab-ci:${GITLAB_PUSH_TOKEN}@${CI_PROJECT_URL#https://}"
     - echo "Sync complete."
   rules:
@@ -31,7 +29,7 @@ test-bot-docker:
   stage: test
   image: python:3.12-slim-bookworm
   tags:
-    - docker # Use the Docker runner with fixed tag
+    - docker
   cache:
     paths:
       - .cache/pip
