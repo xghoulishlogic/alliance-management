@@ -16,6 +16,7 @@ sync_from_github:
     entrypoint: [""]
   tags:
     - docker
+    - debian
   script:
     - echo "Starting clean-room sync..."
     - git clone --mirror $GITHUB_REPO_URL .
@@ -30,6 +31,7 @@ test-bot-docker:
   image: python:3.12-slim-bookworm
   tags:
     - docker
+    - debian
   cache:
     paths:
       - .cache/pip
