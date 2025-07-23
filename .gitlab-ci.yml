@@ -9,6 +9,63 @@ variables:
   GIT_STRATEGY: none
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
+# YAML Anchors to define common configurations once
+.database_init: &database_init |
+  mkdir -p db
+  if [ -n "$CI_ADMIN_USER_ID" ]; then
+    sqlite3 db/settings.sqlite << EOF
+    CREATE TABLE IF NOT EXISTS admin (
+        id INTEGER PRIMARY KEY,
+        is_initial INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS auto (
+        value INTEGER
+    );
+    INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
+    INSERT INTO auto (value) VALUES (1);
+  EOF
+    echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
+  else
+    echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
+  fi
+
+.common_rules: &common_rules
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - "**/*.py"
+        - ".gitlab-ci.yml"
+        - "requirements.txt"
+
+.test_artifacts: &test_artifacts
+  artifacts:
+    when: always
+    paths:
+      - bot_output.log
+      - log/
+    expire_in: 1 week
+
+.shell_artifacts: &shell_artifacts
+  artifacts:
+    when: always
+    paths:
+      - bot_output.log
+      - bot_error.log
+      - log/
+    expire_in: 1 week
+
+.venv_setup: &venv_setup |
+  echo "Creating virtual environment to bypass system restrictions..."
+  python3 -m venv bot_venv
+  source bot_venv/bin/activate
+  pip install --upgrade pip wheel
+  echo "Virtual environment ready"
+
+.bot_token_setup: &bot_token_setup |
+  echo "$CI_BOT_TOKEN" > bot_token.txt
+
 sync_from_github:
   stage: sync
   image:
@@ -24,42 +81,25 @@ sync_from_github:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
 
-# Docker-based test with bot update
 test-bot-docker-update:
   stage: test
   image: python:3.12-slim-bookworm
   tags:
     - docker
+  interruptible: true
   cache:
+    key: "$CI_COMMIT_REF_SLUG-docker-py312"
     paths:
       - .cache/pip
   variables:
     GIT_STRATEGY: clone
     PIP_VERBOSE: "1"
-    PIP_NO_CACHE_DIR: "1"
   before_script:
-    - apt-get update > /dev/null 2>&1 && apt-get install -y git procps sqlite3 > /dev/null 2>&1
-    - mkdir -p db
-    - |
-      if [ -n "$CI_ADMIN_USER_ID" ]; then
-        sqlite3 db/settings.sqlite << EOF
-        CREATE TABLE IF NOT EXISTS admin (
-            id INTEGER PRIMARY KEY,
-            is_initial INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS auto (
-            value INTEGER
-        );
-        INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
-        INSERT INTO auto (value) VALUES (1);
-      EOF
-        echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
-      else
-        echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
-      fi
+    - apt-get update -qq && apt-get install -y -qq git procps sqlite3
+    - *database_init
   script:
     - echo "Testing bot startup in Docker with updates (Debian)..."
-    - echo "$CI_BOT_TOKEN" > bot_token.txt
+    - *bot_token_setup
     - |
       if [ ! -f main.py ]; then
         echo "ERROR: main.py not found!"
@@ -133,27 +173,16 @@ test-bot-docker-update:
   after_script:
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
-  artifacts:
-    when: always
-    paths:
-      - bot_output.log
-      - log/
-    expire_in: 1 week
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "trigger"'
-      when: on_success
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-      changes:
-        - "**/*.py"
-        - ".gitlab-ci.yml"
-        - "requirements.txt"
+  <<: *test_artifacts
+  <<: *common_rules
 
-# Linux native test with bot update
 test-bot-linux-update:
   stage: test
   tags:
     - shell
+  interruptible: true
   cache:
+    key: "$CI_COMMIT_REF_SLUG-shell"
     paths:
       - .cache/pip
       - bot_venv/
@@ -161,37 +190,12 @@ test-bot-linux-update:
     GIT_STRATEGY: clone
   before_script:
     - python3 --version
-    - echo "Creating virtual environment to bypass system restrictions..."
-    - python3 -m venv bot_venv
-    - source bot_venv/bin/activate
-    - python --version
-    - pip --version
-    - python -c "import sys; print('Python executable:', sys.executable)"
-    - pip install --upgrade pip wheel
-    - echo "Virtual environment ready"
-    - mkdir -p db
-    - |
-      if [ -n "$CI_ADMIN_USER_ID" ]; then
-        sqlite3 db/settings.sqlite << EOF
-        CREATE TABLE IF NOT EXISTS admin (
-            id INTEGER PRIMARY KEY,
-            is_initial INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS auto (
-            value INTEGER
-        );
-        INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
-        INSERT INTO auto (value) VALUES (1);
-      EOF
-        echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
-      else
-        echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
-      fi
+    - *venv_setup
+    - *database_init
   script:
     - source bot_venv/bin/activate
     - echo "Testing bot startup on Linux with updates (native)..."
-    - echo "$CI_BOT_TOKEN" > bot_token.txt
-    
+    - *bot_token_setup
     - |
       python main.py --no-venv --autoupdate > bot_output.log 2> bot_error.log &
       BOT_PID=$!
@@ -256,7 +260,7 @@ test-bot-linux-update:
         if grep -q "Restarting bot..." bot_output.log && [ "$RESTART_DETECTED" != "true" ]; then
           echo "Bot is restarting after update - waiting for new process..."
           RESTART_DETECTED=true
-          sleep 10 # Wait for the bot to restart
+          sleep 10  # Give more time for the restart
           
           # Look for any python process running main.py (without strict pattern matching)
           NEW_PID=$(ps aux | grep -E "python[0-9]?.*main.py" | grep -v grep | awk '{print $2}' | head -1)
@@ -317,58 +321,28 @@ test-bot-linux-update:
     - cat bot_error.log || true
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
-  artifacts:
-    when: always
-    paths:
-      - bot_output.log
-      - bot_error.log
-      - log/
-    expire_in: 1 week
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "trigger"'
-      when: on_success
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-      changes:
-        - "**/*.py"
-        - ".gitlab-ci.yml"
-        - "requirements.txt"
+  <<: *shell_artifacts
+  <<: *common_rules
 
-# Docker-based test without bot update
 test-bot-docker-no-update:
   stage: test
   image: python:3.12-slim-bookworm
   tags:
     - docker
+  interruptible: true
   cache:
+    key: "$CI_COMMIT_REF_SLUG-docker-py312"
     paths:
       - .cache/pip
   variables:
     GIT_STRATEGY: clone
     PIP_VERBOSE: "1"
-    PIP_NO_CACHE_DIR: "1"
   before_script:
-    - apt-get update > /dev/null 2>&1 && apt-get install -y git procps sqlite3 > /dev/null 2>&1
-    - mkdir -p db
-    - |
-      if [ -n "$CI_ADMIN_USER_ID" ]; then
-        sqlite3 db/settings.sqlite << EOF
-        CREATE TABLE IF NOT EXISTS admin (
-            id INTEGER PRIMARY KEY,
-            is_initial INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS auto (
-            value INTEGER
-        );
-        INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
-        INSERT INTO auto (value) VALUES (1);
-      EOF
-        echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
-      else
-        echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
-      fi
+    - apt-get update -qq && apt-get install -y -qq git procps sqlite3
+    - *database_init
   script:
     - echo "Testing bot startup in Docker without updates (Debian)..."
-    - echo "$CI_BOT_TOKEN" > bot_token.txt
+    - *bot_token_setup
     - |
       if [ ! -f main.py ]; then
         echo "ERROR: main.py not found!"
@@ -435,27 +409,17 @@ test-bot-docker-no-update:
   after_script:
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
-  artifacts:
-    when: always
-    paths:
-      - bot_output.log
-      - log/
-    expire_in: 1 week
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "trigger"'
-      when: on_success
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-      changes:
-        - "**/*.py"
-        - ".gitlab-ci.yml"
-        - "requirements.txt"
+  <<: *test_artifacts
+  <<: *common_rules
 
-# Linux native test without bot update
+# Linux native test without update (Debian runner)
 test-bot-linux-no-update:
   stage: test
   tags:
     - shell
+  interruptible: true
   cache:
+    key: "$CI_COMMIT_REF_SLUG-shell"
     paths:
       - .cache/pip
       - bot_venv/
@@ -463,37 +427,12 @@ test-bot-linux-no-update:
     GIT_STRATEGY: clone
   before_script:
     - python3 --version
-    - echo "Creating virtual environment to bypass system restrictions..."
-    - python3 -m venv bot_venv
-    - source bot_venv/bin/activate
-    - python --version
-    - pip --version
-    - python -c "import sys; print('Python executable:', sys.executable)"
-    - pip install --upgrade pip wheel
-    - echo "Virtual environment ready"
-    - mkdir -p db
-    - |
-      if [ -n "$CI_ADMIN_USER_ID" ]; then
-        sqlite3 db/settings.sqlite << EOF
-        CREATE TABLE IF NOT EXISTS admin (
-            id INTEGER PRIMARY KEY,
-            is_initial INTEGER
-        );
-        CREATE TABLE IF NOT EXISTS auto (
-            value INTEGER
-        );
-        INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
-        INSERT INTO auto (value) VALUES (1);
-      EOF
-        echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
-      else
-        echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
-      fi
+    - *venv_setup
+    - *database_init
   script:
     - source bot_venv/bin/activate
     - echo "Testing bot startup on Linux without updates (native)..."
-    - echo "$CI_BOT_TOKEN" > bot_token.txt
-    
+    - *bot_token_setup
     - |
       python main.py --no-venv --no-update 2>&1 | tee bot_output.log &
       BOT_PID=$!
@@ -558,17 +497,5 @@ test-bot-linux-no-update:
     - cat bot_output.log || true
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
-  artifacts:
-    when: always
-    paths:
-      - bot_output.log
-      - log/
-    expire_in: 1 week
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "trigger"'
-      when: on_success
-    - if: '$CI_PIPELINE_SOURCE == "push"'
-      changes:
-        - "**/*.py"
-        - ".gitlab-ci.yml"
-        - "requirements.txt"
+  <<: *test_artifacts
+  <<: *common_rules
