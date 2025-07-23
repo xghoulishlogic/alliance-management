@@ -16,7 +16,6 @@ sync_from_github:
     entrypoint: [""]
   tags:
     - docker
-    - debian
   script:
     - echo "Starting clean-room sync..."
     - git clone --mirror $GITHUB_REPO_URL .
@@ -31,21 +30,26 @@ test-bot-docker:
   image: python:3.12-slim-bookworm
   tags:
     - docker
-    - debian
   cache:
     paths:
       - .cache/pip
   variables:
     GIT_STRATEGY: clone
+    PIP_VERBOSE: "1"
+    PIP_NO_CACHE_DIR: "1"
   before_script:
     - apt-get update && apt-get install -y git procps
     - python --version
+    - python -m pip --version || echo "pip not available"
+    - python -c "import sys; print('Python executable:', sys.executable)"
+    - python -c "import site; print('Site packages:', site.getsitepackages())" || echo "Cannot get site packages"
+    - python -m pip install wheel || echo "pip install test failed"
   script:
     - echo "Testing bot startup in Docker (Debian)..."
     - echo "$CI_BOT_TOKEN" > bot_token.txt
     
     - |
-      python main.py > bot_output.log 2>&1 &
+      python main.py > bot_output.log 2> bot_error.log &
       BOT_PID=$!
       echo $BOT_PID > .bot_pid
       
@@ -60,15 +64,29 @@ test-bot-docker:
         if [ $ELAPSED -gt $TIMEOUT ]; then
           echo "Timeout waiting for bot initialization"
           kill $BOT_PID 2>/dev/null || true
+          echo "=== STDOUT ==="
           cat bot_output.log
+          echo "=== STDERR ==="
+          cat bot_error.log || true
           exit 1
         fi
         
         # Check if bot is still running
         if ! ps -p $BOT_PID > /dev/null; then
           echo "Bot process terminated unexpectedly"
+          echo "=== STDOUT ==="
           cat bot_output.log
+          echo "=== STDERR ==="
+          cat bot_error.log || true
           exit 1
+        fi
+        
+        # Check error log for pip failures
+        if [ -f bot_error.log ] && [ -s bot_error.log ]; then
+          if grep -q "pip" bot_error.log || grep -q "Failed to install" bot_error.log; then
+            echo "=== PIP ERROR DETECTED ==="
+            cat bot_error.log
+          fi
         fi
         
         # Check for all success indicators
@@ -101,14 +119,17 @@ test-bot-docker:
         sleep 2
         kill -9 $(cat .bot_pid) 2>/dev/null || true
       fi
-    - echo "=== Final Logs ==="
+    - echo "=== Final Logs (STDOUT) ==="
     - cat bot_output.log || true
+    - echo "=== Error Log (STDERR) ==="
+    - cat bot_error.log || true
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
   artifacts:
     when: always
     paths:
       - bot_output.log
+      - bot_error.log
       - log/
     expire_in: 1 week
   rules:
@@ -125,20 +146,27 @@ test-bot-linux:
   stage: test
   tags:
     - shell
+    - native
   cache:
     paths:
       - .cache/pip
   variables:
     GIT_STRATEGY: clone
+    PIP_VERBOSE: "1"
+    PIP_NO_CACHE_DIR: "1"
   before_script:
     - python3 --version
+    - python3 -m pip --version || echo "pip not available"
+    - python3 -c "import sys; print('Python executable:', sys.executable)"
+    - python3 -c "import site; print('Site packages:', site.getsitepackages())" || echo "Cannot get site packages"
+    - python3 -m pip install --user wheel || echo "pip install test failed"
     # No venv - bot detects CI
   script:
     - echo "Testing bot startup on Linux (native)..."
     - echo "$CI_BOT_TOKEN" > bot_token.txt
     
     - |
-      python3 main.py > bot_output.log 2>&1 &
+      python3 main.py > bot_output.log 2> bot_error.log &
       BOT_PID=$!
       echo $BOT_PID > .bot_pid
       
@@ -152,14 +180,28 @@ test-bot-linux:
         if [ $ELAPSED -gt $TIMEOUT ]; then
           echo "Timeout waiting for bot initialization"
           kill $BOT_PID 2>/dev/null || true
+          echo "=== STDOUT ==="
           cat bot_output.log
+          echo "=== STDERR ==="
+          cat bot_error.log || true
           exit 1
         fi
         
         if ! ps -p $BOT_PID > /dev/null; then
           echo "Bot process terminated unexpectedly"
+          echo "=== STDOUT ==="
           cat bot_output.log
+          echo "=== STDERR ==="
+          cat bot_error.log || true
           exit 1
+        fi
+        
+        # Check error log for pip failures
+        if [ -f bot_error.log ] && [ -s bot_error.log ]; then
+          if grep -q "pip" bot_error.log || grep -q "Failed to install" bot_error.log; then
+            echo "=== PIP ERROR DETECTED ==="
+            cat bot_error.log
+          fi
         fi
         
         if grep -q "✓ All requirements satisfied" bot_output.log && \
@@ -183,14 +225,17 @@ test-bot-linux:
         sleep 2
         kill -9 $(cat .bot_pid) 2>/dev/null || true
       fi
-    - echo "=== Final Logs ==="
+    - echo "=== Final Logs (STDOUT) ==="
     - cat bot_output.log || true
+    - echo "=== Error Log (STDERR) ==="
+    - cat bot_error.log || true
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
   artifacts:
     when: always
     paths:
       - bot_output.log
+      - bot_error.log
       - log/
     expire_in: 1 week
   rules:
