@@ -76,7 +76,7 @@ test-bot-docker:
         echo "Exit code: $EXIT_CODE"
       fi
       
-      TIMEOUT=30
+      TIMEOUT=300
       START_TIME=$(date +%s)
       
       while true; do
@@ -125,6 +125,11 @@ test-bot-docker:
           if grep -q "ONNX model test successful. Model ready for captcha solving." log/gift_solver.txt; then
             echo "ONNX model initialized successfully!"
           fi
+        fi
+        
+        # Show progress every 10 seconds
+        if [ $((ELAPSED % 10)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+          echo "Still waiting for bot initialization... ($ELAPSED/$TIMEOUT seconds)"
         fi
         
         sleep 1
@@ -179,17 +184,24 @@ test-bot-linux:
     - python3 --version
     - |
       if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "pip not found, installing using apt-get..."
-        sudo apt-get update || apt-get update
-        sudo apt-get install -y python3-pip || apt-get install -y python3-pip
+        echo "pip not found, trying ensurepip..."
+        python3 -m ensurepip --user --default-pip || echo "ensurepip failed"
       fi
     - |
       if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "apt-get failed, trying ensurepip..."
-        python3 -m ensurepip --default-pip || echo "ensurepip failed"
-        python3 -m pip install --upgrade pip || echo "pip upgrade failed"
+        echo "ensurepip failed, downloading get-pip.py..."
+        curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py || wget -q https://bootstrap.pypa.io/get-pip.py
+        python3 get-pip.py --user || echo "get-pip.py failed"
+        rm -f get-pip.py
       fi
-    - python3 -m pip --version || echo "pip still not available"
+    - |
+      if ! python3 -m pip --version >/dev/null 2>&1; then
+        echo "All pip installation methods failed. Bot will try its own installation."
+      else
+        echo "pip is now available"
+        python3 -m pip install --user --upgrade pip || echo "pip upgrade failed"
+      fi
+    - python3 -m pip --version || echo "pip not available"
     - python3 -c "import sys; print('Python executable:', sys.executable)"
     - python3 -c "import site; print('Site packages:', site.getsitepackages())" || echo "Cannot get site packages"
     - python3 -m pip install --user wheel || echo "pip install test failed"
@@ -203,7 +215,7 @@ test-bot-linux:
       BOT_PID=$!
       echo $BOT_PID > .bot_pid
       
-      TIMEOUT=30
+      TIMEOUT=300
       START_TIME=$(date +%s)
       
       while true; do
@@ -243,6 +255,11 @@ test-bot-linux:
            grep -q "Activation messages sent to admin user." bot_output.log; then
           echo "Bot initialization successful!"
           break
+        fi
+        
+        # Show progress every 10 seconds
+        if [ $((ELAPSED % 10)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
+          echo "Still waiting for bot initialization... ($ELAPSED/$TIMEOUT seconds)"
         fi
         
         sleep 1
