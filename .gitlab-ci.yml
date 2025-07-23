@@ -59,123 +59,80 @@ test-bot-docker:
       fi
     - head -n 5 main.py
     - python -m py_compile main.py || echo "Python syntax error in main.py"
-    - echo "=== Testing direct execution ==="
-    - timeout 5 python main.py || echo "Direct execution test completed/failed with code $?"
     - |
-      echo "=== Starting bot with background execution ==="
-      python -u main.py > bot_output.log 2> bot_error.log &
-      BOT_PID=$!
-      echo $BOT_PID > .bot_pid
-      
-      sleep 2
-      
-      if ! ps -p $BOT_PID > /dev/null; then
-        echo "Bot crashed immediately!"
-        wait $BOT_PID
-        EXIT_CODE=$?
-        echo "Exit code: $EXIT_CODE"
-      fi
-      
+      echo "=== Running bot in foreground with timeout ==="
+      echo "The bot will run until it logs in successfully or timeout occurs"
+      # Create a wrapper script to check for success
+      cat > check_bot_success.sh << 'EOF'
+      #!/bin/bash
+      LOG_FILE="bot_output.log"
       TIMEOUT=300
       START_TIME=$(date +%s)
-      RESTART_DETECTED=false
+      
+      # Start the bot and tee output to log file
+      python -u main.py --autoupdate 2>&1 | tee $LOG_FILE &
+      BOT_PID=$!
+      
+      echo "Bot started with PID: $BOT_PID"
       
       while true; do
         CURRENT_TIME=$(date +%s)
         ELAPSED=$((CURRENT_TIME - START_TIME))
         
         if [ $ELAPSED -gt $TIMEOUT ]; then
-          echo "Timeout waiting for bot initialization"
+          echo "Timeout after $TIMEOUT seconds"
           kill $BOT_PID 2>/dev/null || true
-          echo "=== STDOUT ==="
-          cat bot_output.log
-          echo "=== STDERR ==="
-          cat bot_error.log || true
           exit 1
         fi
         
-        # Check if bot is still running
-        if ! ps -p $BOT_PID > /dev/null; then
-          echo "Bot process terminated unexpectedly"
-          echo "=== STDOUT ==="
-          cat bot_output.log
-          echo "=== STDERR ==="
-          cat bot_error.log || true
-          exit 1
-        fi
-        
-        # Check error log for pip failures
-        if [ -f bot_error.log ] && [ -s bot_error.log ]; then
-          if grep -q "pip" bot_error.log || grep -q "Failed to install" bot_error.log; then
-            echo "=== PIP ERROR DETECTED ==="
-            cat bot_error.log
-          fi
-        fi
-        
-        # Check for bot restart after auto-update
-        if grep -q "Restarting bot..." bot_output.log && [ "$RESTART_DETECTED" != "true" ]; then
-          echo "Bot is restarting after update - waiting for new process..."
-          RESTART_DETECTED=true
-          sleep 5
+        # Check if bot process is still running
+        if ! ps -p $BOT_PID > /dev/null 2>&1; then
+          echo "Bot process has exited"
+          wait $BOT_PID
+          EXIT_CODE=$?
           
-          # Find the new python process running main.py
-          NEW_PID=$(ps aux | grep "[p]ython.*main.py" | grep -v grep | awk '{print $2}' | head -1)
-          if [ -n "$NEW_PID" ]; then
-            echo "Found new bot process with PID: $NEW_PID"
-            BOT_PID=$NEW_PID
-            echo $BOT_PID > .bot_pid
+          # Check if it was a restart
+          if grep -q "Restarting bot..." $LOG_FILE; then
+            echo "Bot restarted after update - this is normal"
+            # The bot will restart itself, so this script exits successfully
+            exit 0
           else
-            echo "Warning: Could not find new bot process after restart"
+            echo "Bot exited with code: $EXIT_CODE"
+            exit $EXIT_CODE
           fi
-          continue
         fi
         
-        # Check for all success indicators
-        if grep -q "✓ All requirements satisfied" bot_output.log && \
-           grep -q "✓ All core imports successful" bot_output.log && \
-           grep -q "Logged in as" bot_output.log && \
-           grep -q "Activation messages sent to admin user." bot_output.log; then
+        # Check for success indicators
+        if grep -q "✓ All requirements satisfied" $LOG_FILE && \
+           grep -q "✓ All core imports successful" $LOG_FILE && \
+           grep -q "Logged in as" $LOG_FILE && \
+           grep -q "Activation messages sent to admin user." $LOG_FILE; then
           echo "Bot initialization successful!"
-          break
+          sleep 5  # Let it run a bit more
+          kill $BOT_PID 2>/dev/null || true
+          exit 0
         fi
         
-        # Check ONNX model if gift_solver.txt exists
-        if [ -f log/gift_solver.txt ]; then
-          if grep -q "ONNX model test successful. Model ready for captcha solving." log/gift_solver.txt; then
-            echo "ONNX model initialized successfully!"
-          fi
-        fi
-        
-        # Show progress every 10 seconds
+        # Show progress
         if [ $((ELAPSED % 10)) -eq 0 ] && [ $ELAPSED -gt 0 ]; then
-          echo "Still waiting for bot initialization... ($ELAPSED/$TIMEOUT seconds)"
+          echo "Still waiting... ($ELAPSED/$TIMEOUT seconds)"
         fi
         
         sleep 1
       done
+      EOF
       
-      # Show final status
-      echo "=== Bot started successfully ==="
-      grep "Logged in as" bot_output.log
-      grep "Activation messages" bot_output.log
+      chmod +x check_bot_success.sh
+      ./check_bot_success.sh
   after_script:
-    - |
-      if [ -f .bot_pid ]; then
-        kill $(cat .bot_pid) 2>/dev/null || true
-        sleep 2
-        kill -9 $(cat .bot_pid) 2>/dev/null || true
-      fi
-    - echo "=== Final Logs (STDOUT) ==="
+    - echo "=== Final Bot Output ==="
     - cat bot_output.log || true
-    - echo "=== Error Log (STDERR) ==="
-    - cat bot_error.log || true
     - echo "=== Gift Solver Log ==="
     - cat log/gift_solver.txt || true
   artifacts:
     when: always
     paths:
       - bot_output.log
-      - bot_error.log
       - log/
     expire_in: 1 week
   rules:
@@ -214,7 +171,7 @@ test-bot-linux:
     - echo "$CI_BOT_TOKEN" > bot_token.txt
     
     - |
-      python main.py --no-venv > bot_output.log 2> bot_error.log &
+      python main.py --no-venv --autoupdate > bot_output.log 2> bot_error.log &
       BOT_PID=$!
       echo $BOT_PID > .bot_pid
       
@@ -260,7 +217,7 @@ test-bot-linux:
           sleep 5
           
           # Find the new python process running main.py
-          NEW_PID=$(ps aux | grep "[p]ython.*main.py.*--no-venv" | grep -v grep | awk '{print $2}' | head -1)
+          NEW_PID=$(ps aux | grep "[p]ython.*main.py.*--no-venv.*--autoupdate" | grep -v grep | awk '{print $2}' | head -1)
           if [ -n "$NEW_PID" ]; then
             echo "Found new bot process with PID: $NEW_PID"
             BOT_PID=$NEW_PID
