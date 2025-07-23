@@ -38,12 +38,31 @@ test-bot-docker:
     PIP_VERBOSE: "1"
     PIP_NO_CACHE_DIR: "1"
   before_script:
-    - apt-get update && apt-get install -y git procps
+    - apt-get update && apt-get install -y git procps sqlite3
     - python --version
     - python -m pip --version || echo "pip not available"
     - python -c "import sys; print('Python executable:', sys.executable)"
     - python -c "import site; print('Site packages:', site.getsitepackages())" || echo "Cannot get site packages"
     - python -m pip install wheel || echo "pip install test failed"
+    # Initialize admin database
+    - mkdir -p db
+    - |
+      if [ -n "$CI_ADMIN_USER_ID" ]; then
+        sqlite3 db/settings.sqlite << EOF
+        CREATE TABLE IF NOT EXISTS admin (
+            id INTEGER PRIMARY KEY,
+            is_initial INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS auto (
+            value INTEGER
+        );
+        INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
+        INSERT INTO auto (value) VALUES (1);
+      EOF
+        echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
+      else
+        echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
+      fi
   script:
     - echo "Testing bot startup in Docker (Debian)..."
     - echo "$CI_BOT_TOKEN" > bot_token.txt
@@ -70,7 +89,7 @@ test-bot-docker:
       START_TIME=$(date +%s)
       
       # Start the bot and tee output to log file
-      python -u main.py --autoupdate 2>&1 | tee $LOG_FILE &
+      python -u main.py 2>&1 | tee $LOG_FILE &
       BOT_PID=$!
       
       echo "Bot started with PID: $BOT_PID"
@@ -165,6 +184,25 @@ test-bot-linux:
     - python -c "import sys; print('Python executable:', sys.executable)"
     - pip install --upgrade pip wheel
     - echo "Virtual environment ready"
+    # Initialize admin database
+    - mkdir -p db
+    - |
+      if [ -n "$CI_ADMIN_USER_ID" ]; then
+        sqlite3 db/settings.sqlite << EOF
+        CREATE TABLE IF NOT EXISTS admin (
+            id INTEGER PRIMARY KEY,
+            is_initial INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS auto (
+            value INTEGER
+        );
+        INSERT INTO admin (id, is_initial) VALUES ($CI_ADMIN_USER_ID, 1);
+        INSERT INTO auto (value) VALUES (1);
+      EOF
+        echo "Admin database initialized with user ID: $CI_ADMIN_USER_ID"
+      else
+        echo "Warning: CI_ADMIN_USER_ID not set, bot will wait for manual setup"
+      fi
   script:
     - source bot_venv/bin/activate
     - echo "Testing bot startup on Linux (native)..."
