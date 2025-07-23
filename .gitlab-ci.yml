@@ -78,6 +78,7 @@ test-bot-docker:
       
       TIMEOUT=300
       START_TIME=$(date +%s)
+      RESTART_DETECTED=false
       
       while true; do
         CURRENT_TIME=$(date +%s)
@@ -109,6 +110,24 @@ test-bot-docker:
             echo "=== PIP ERROR DETECTED ==="
             cat bot_error.log
           fi
+        fi
+        
+        # Check for bot restart after auto-update
+        if grep -q "Restarting bot..." bot_output.log && [ "$RESTART_DETECTED" != "true" ]; then
+          echo "Bot is restarting after update - waiting for new process..."
+          RESTART_DETECTED=true
+          sleep 5
+          
+          # Find the new python process running main.py
+          NEW_PID=$(ps aux | grep "[p]ython.*main.py" | grep -v grep | awk '{print $2}' | head -1)
+          if [ -n "$NEW_PID" ]; then
+            echo "Found new bot process with PID: $NEW_PID"
+            BOT_PID=$NEW_PID
+            echo $BOT_PID > .bot_pid
+          else
+            echo "Warning: Could not find new bot process after restart"
+          fi
+          continue
         fi
         
         # Check for all success indicators
@@ -176,47 +195,32 @@ test-bot-linux:
   cache:
     paths:
       - .cache/pip
+      - bot_venv/
   variables:
     GIT_STRATEGY: clone
-    PIP_VERBOSE: "1"
-    PIP_NO_CACHE_DIR: "1"
   before_script:
     - python3 --version
-    - |
-      if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "pip not found, trying ensurepip..."
-        python3 -m ensurepip --user --default-pip || echo "ensurepip failed"
-      fi
-    - |
-      if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "ensurepip failed, downloading get-pip.py..."
-        curl -sS https://bootstrap.pypa.io/get-pip.py -o get-pip.py || wget -q https://bootstrap.pypa.io/get-pip.py
-        python3 get-pip.py --user || echo "get-pip.py failed"
-        rm -f get-pip.py
-      fi
-    - |
-      if ! python3 -m pip --version >/dev/null 2>&1; then
-        echo "All pip installation methods failed. Bot will try its own installation."
-      else
-        echo "pip is now available"
-        python3 -m pip install --user --upgrade pip || echo "pip upgrade failed"
-      fi
-    - python3 -m pip --version || echo "pip not available"
-    - python3 -c "import sys; print('Python executable:', sys.executable)"
-    - python3 -c "import site; print('Site packages:', site.getsitepackages())" || echo "Cannot get site packages"
-    - python3 -m pip install --user wheel || echo "pip install test failed"
-    # No venv - bot detects CI
+    - echo "Creating virtual environment to bypass system restrictions..."
+    - python3 -m venv bot_venv
+    - source bot_venv/bin/activate
+    - python --version
+    - pip --version
+    - python -c "import sys; print('Python executable:', sys.executable)"
+    - pip install --upgrade pip wheel
+    - echo "Virtual environment ready"
   script:
+    - source bot_venv/bin/activate
     - echo "Testing bot startup on Linux (native)..."
     - echo "$CI_BOT_TOKEN" > bot_token.txt
     
     - |
-      python3 main.py > bot_output.log 2> bot_error.log &
+      python main.py --no-venv > bot_output.log 2> bot_error.log &
       BOT_PID=$!
       echo $BOT_PID > .bot_pid
       
       TIMEOUT=300
       START_TIME=$(date +%s)
+      RESTART_DETECTED=false
       
       while true; do
         CURRENT_TIME=$(date +%s)
@@ -247,6 +251,26 @@ test-bot-linux:
             echo "=== PIP ERROR DETECTED ==="
             cat bot_error.log
           fi
+        fi
+        
+        # Check for bot restart (happens after auto-update)
+        if grep -q "Restarting bot..." bot_output.log && [ "$RESTART_DETECTED" != "true" ]; then
+          echo "Bot is restarting after update - waiting for new process..."
+          RESTART_DETECTED=true
+          sleep 5
+          
+          # Find the new python process running main.py
+          NEW_PID=$(ps aux | grep "[p]ython.*main.py.*--no-venv" | grep -v grep | awk '{print $2}' | head -1)
+          if [ -n "$NEW_PID" ]; then
+            echo "Found new bot process with PID: $NEW_PID"
+            BOT_PID=$NEW_PID
+            echo $BOT_PID > .bot_pid
+          else
+            echo "Warning: Could not find new bot process after restart"
+          fi
+          
+          # Continue waiting for actual success
+          continue
         fi
         
         if grep -q "✓ All requirements satisfied" bot_output.log && \
