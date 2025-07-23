@@ -381,6 +381,13 @@ except Exception as e:
 if __name__ == "__main__":
     import requests
 
+    # Check for mutually exclusive flags
+    if "--autoupdate" in sys.argv and "--no-update" in sys.argv:
+        print(Fore.RED + "Error: --autoupdate and --no-update flags are mutually exclusive." + Style.RESET_ALL)
+        print("Use --autoupdate to automatically install updates without prompting.")
+        print("Use --no-update to skip all update checks.")
+        sys.exit(1)
+
     def restart_bot():
         python = sys.executable
         script_path = os.path.abspath(sys.argv[0])
@@ -625,7 +632,10 @@ if __name__ == "__main__":
     import asyncio
     from datetime import datetime
             
-    asyncio.run(check_and_update_files())
+    if "--no-update" in sys.argv:
+        print(Fore.YELLOW + "Update check skipped due to --no-update flag." + Style.RESET_ALL)
+    else:
+        asyncio.run(check_and_update_files())
             
     import discord
     from discord.ext import commands
