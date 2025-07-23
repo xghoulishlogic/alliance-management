@@ -50,7 +50,7 @@ test-bot-docker:
     - echo "=== Current directory $(pwd) ==="
     - echo "=== Directory contents ==="
     - ls -la
-    - echo "=== Python files: ==="
+    - echo "=== Python files ==="
     - find . -name "*.py" -type f | head -20
     - |
       if [ ! -f main.py ]; then
