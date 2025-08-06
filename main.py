@@ -462,7 +462,8 @@ if __name__ == "__main__":
                     current_version = f.read().strip()
             else:
                 current_version = "v0.0.0"
-                        
+            print(Fore.CYAN + f"Current version: {current_version}" + Style.RESET_ALL)
+
             if current_version != latest_tag:
                 print(Fore.YELLOW + f"New version available: {latest_tag} (from {source_name})" + Style.RESET_ALL)
                 print("Update Notes:")
