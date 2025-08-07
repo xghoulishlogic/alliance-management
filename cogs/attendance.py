@@ -827,6 +827,28 @@ class ConfirmDeleteView(discord.ui.View):
     async def cancel_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.parent_view.parent_view.update_main_embed(interaction)
 
+class PlayerFilterModal(discord.ui.Modal, title="Filter Players"):
+    def __init__(self, parent_view):
+        super().__init__()
+        self.parent_view = parent_view
+        
+        self.filter_input = discord.ui.TextInput(
+            label="Filter by ID or Name",
+            placeholder="Enter player ID or name (partial match supported)",
+            required=False,
+            max_length=100,
+            default=self.parent_view.filter_text
+        )
+        self.add_item(self.filter_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        self.parent_view.filter_text = self.filter_input.value.strip()
+        self.parent_view.page = 0  # Reset to first page when filtering
+        self.parent_view.apply_filter()
+        self.parent_view.update_select_menu()
+        self.parent_view.update_clear_button_visibility()
+        await self.parent_view.update_main_embed(interaction)
+
 class PlayerSelectView(discord.ui.View):
     def __init__(self, players, alliance_name, session_name, cog, alliance_id=None, session_id=None, is_edit=False, page=0, event_type="Other", event_date=None):
         super().__init__(timeout=7200)
@@ -857,9 +879,49 @@ class PlayerSelectView(discord.ui.View):
         self.page = page
         self.max_page = (len(players) - 1) // 25 if players else 0
         self.current_select = None
+        
+        # Filter-related attributes
+        self.filter_text = ""
+        self.filtered_players = self.players.copy()
+        
         self.update_select_menu()
+        self.update_clear_button_visibility()
         
         # Edit Event Details button is now available for both create and edit modes
+
+    def apply_filter(self):
+        """Apply the filter to the players list"""
+        if not self.filter_text:
+            self.filtered_players = self.players.copy()
+        else:
+            filter_lower = self.filter_text.lower()
+            self.filtered_players = []
+            
+            for player in self.players:
+                # Handle both dict and tuple formats
+                if isinstance(player, dict):
+                    fid = str(player['fid'])
+                    nickname = player['nickname']
+                else:
+                    fid = str(player[0])
+                    nickname = player[1] if len(player) > 1 else ""
+                
+                # Check if filter matches FID or nickname (partial, case-insensitive)
+                if filter_lower in fid.lower() or filter_lower in nickname.lower():
+                    self.filtered_players.append(player)
+        
+        # Update max page based on filtered results
+        self.max_page = (len(self.filtered_players) - 1) // 25 if self.filtered_players else 0
+        
+        # Ensure current page is valid
+        if self.page > self.max_page:
+            self.page = self.max_page
+    
+    def update_clear_button_visibility(self):
+        """Enable/disable the Clear button based on filter status"""
+        clear_button = next((item for item in self.children if hasattr(item, 'label') and item.label == "❌ Clear"), None)
+        if clear_button:
+            clear_button.disabled = not bool(self.filter_text)
 
     def update_select_menu(self):
         # Remove existing select menu
@@ -868,8 +930,8 @@ class PlayerSelectView(discord.ui.View):
                 self.remove_item(item)
 
         start_idx = self.page * 25
-        end_idx = min(start_idx + 25, len(self.players))
-        current_players = self.players[start_idx:end_idx]
+        end_idx = min(start_idx + 25, len(self.filtered_players))
+        current_players = self.filtered_players[start_idx:end_idx]
 
         # Create options with status emojis
         options = []
@@ -922,14 +984,39 @@ class PlayerSelectView(discord.ui.View):
                 emoji="👤"
             ))
         
+        # Update placeholder to show filter status
+        if self.filter_text:
+            if not options:
+                # No results found - create a dummy option
+                placeholder = f"❌ No results for '{self.filter_text}'"
+                options = [discord.SelectOption(
+                    label="No players found",
+                    value="none",
+                    description="Clear the filter to see all players",
+                    emoji="❌"
+                )]
+            else:
+                placeholder = f"👥 Filtered: '{self.filter_text}' - {len(self.filtered_players)} results (Page {self.page + 1}/{self.max_page + 1})"
+        else:
+            placeholder = f"👥 Select a player to mark attendance... (Page {self.page + 1}/{self.max_page + 1})"
+        
         select = discord.ui.Select(
-            placeholder=f"👥 Select a player to mark attendance... (Page {self.page + 1}/{self.max_page + 1})",
+            placeholder=placeholder,
             options=options
         )
         
         async def select_callback(interaction: discord.Interaction):
             try:
                 self.current_select = select
+                
+                # Check if this is the "no results" option
+                if select.values[0] == "none":
+                    await interaction.response.send_message(
+                        "No players found with the current filter. Use the Clear button to remove the filter.",
+                        ephemeral=True
+                    )
+                    return
+                
                 selected_fid = int(select.values[0])
                 
                 # Find the selected player with proper error handling
@@ -1018,8 +1105,38 @@ class PlayerSelectView(discord.ui.View):
         self.page = min(self.max_page, self.page + 1)
         self.update_select_menu()
         await self.update_main_embed(interaction)
+    
+    @discord.ui.button(label="🔍 Filter", style=discord.ButtonStyle.secondary, row=1)
+    async def filter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = PlayerFilterModal(self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="❌ Clear", style=discord.ButtonStyle.danger, row=1, disabled=True)
+    async def clear_filter_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.filter_text = ""
+        self.page = 0
+        self.apply_filter()
+        self.update_select_menu()
+        self.update_clear_button_visibility()
+        await self.update_main_embed(interaction)
+    
+    @discord.ui.button(label="⚙️ Edit Event", style=discord.ButtonStyle.secondary, row=1)
+    async def edit_event_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Show view to edit event type and date
+        view = EditEventDetailsView(self.session_id, self.session_name, self.event_type, self.event_date, self, is_edit=self.is_edit)
+        embed = discord.Embed(
+            title="⚙️ Edit Event",
+            description=(
+                f"**Session:** {self.session_name}\n"
+                f"**Current Event Type:** {self.event_type}\n"
+                f"**Current Date:** {self.event_date.strftime('%Y-%m-%d %H:%M UTC') if isinstance(self.event_date, datetime) else self.event_date or 'Not set'}\n\n"
+                "Select a new event type from the dropdown and/or edit the date."
+            ),
+            color=discord.Color.blue()
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(label="📊 View Summary", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="📊 View Summary", style=discord.ButtonStyle.primary, row=2)
     async def view_summary_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.selected_players:
             # Show error in the same message
@@ -1041,7 +1158,7 @@ class PlayerSelectView(discord.ui.View):
         
         await self.show_summary(interaction)
 
-    @discord.ui.button(label="✅ Finish Attendance", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="✅ Finish Attendance", style=discord.ButtonStyle.success, row=2)
     async def finish_attendance_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             if not self.selected_players:
@@ -1086,37 +1203,31 @@ class PlayerSelectView(discord.ui.View):
     @discord.ui.button(label="⬅️ Back", style=discord.ButtonStyle.secondary, row=2)
     async def back_to_alliance_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.cog.show_attendance_menu(interaction)
-    
-    @discord.ui.button(label="⚙️ Edit Event Details", style=discord.ButtonStyle.secondary, row=2)
-    async def edit_event_details_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Show view to edit event type and date
-        view = EditEventDetailsView(self.session_id, self.session_name, self.event_type, self.event_date, self, is_edit=self.is_edit)
-        embed = discord.Embed(
-            title="⚙️ Edit Event Details",
-            description=(
-                f"**Session:** {self.session_name}\n"
-                f"**Current Event Type:** {self.event_type}\n"
-                f"**Current Date:** {self.event_date.strftime('%Y-%m-%d %H:%M UTC') if isinstance(self.event_date, datetime) else self.event_date or 'Not set'}\n\n"
-                "Select a new event type from the dropdown and/or edit the date."
-            ),
-            color=discord.Color.blue()
-        )
-        await interaction.response.edit_message(embed=embed, view=view)
 
     async def update_main_embed(self, interaction: discord.Interaction):
         marked_count = sum(1 for p in self.selected_players.values() 
                           if p['attendance_type'] in ['present', 'absent'])
         total_count = len(self.players)
         
+        # Build description with filter info
+        description_parts = [
+            f"**Session:** {self.session_name}",
+            f"**Progress:** {marked_count}/{total_count} players marked",
+            f"**Current Page:** {self.page + 1}/{self.max_page + 1}"
+        ]
+        
+        if self.filter_text:
+            description_parts.append(f"**Filter Active:** '{self.filter_text}' ({len(self.filtered_players)} results)")
+        
+        description_parts.extend([
+            "",
+            "Select a player from the dropdown to mark their attendance.",
+            "Use the buttons below to navigate, view summary, or finish."
+        ])
+        
         embed = discord.Embed(
             title=f"📋 Marking Attendance - {self.alliance_name}",
-            description=(
-                f"**Session:** {self.session_name}\n"
-                f"**Progress:** {marked_count}/{total_count} players marked\n"
-                f"**Current Page:** {self.page + 1}/{self.max_page + 1}\n\n"
-                "Select a player from the dropdown to mark their attendance.\n"
-                "Use the buttons below to navigate, view summary, or finish."
-            ),
+            description="\n".join(description_parts),
             color=discord.Color.blue()
         )
         
