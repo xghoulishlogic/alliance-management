@@ -1755,20 +1755,7 @@ class Attendance(commands.Cog):
                     alliances = cursor.fetchall()
                     return alliances, [], True
             
-            # Server admin - get server and special access alliances
-            server_alliances = []
-            special_alliances = []
-            
-            with sqlite3.connect('db/alliance.sqlite') as alliance_db:
-                cursor = alliance_db.cursor()
-                cursor.execute("""
-                    SELECT DISTINCT alliance_id, name 
-                    FROM alliance_list 
-                    WHERE discord_server_id = ?
-                    ORDER BY name
-                """, (guild_id,))
-                server_alliances = cursor.fetchall()
-            
+            # Non-global admin - get only alliances they've been assigned to
             with sqlite3.connect('db/settings.sqlite') as settings_db:
                 cursor = settings_db.cursor()
                 cursor.execute("""
@@ -1776,12 +1763,12 @@ class Attendance(commands.Cog):
                     FROM adminserver 
                     WHERE admin = ?
                 """, (user_id,))
-                special_alliance_ids = cursor.fetchall()
+                admin_alliance_ids = cursor.fetchall()
                 
-            if special_alliance_ids:
-                # Validate that all special alliance IDs are integers to prevent SQL injection
+            if admin_alliance_ids:
+                # Validate that all alliance IDs are integers to prevent SQL injection
                 validated_ids = []
-                for aid_tuple in special_alliance_ids:
+                for aid_tuple in admin_alliance_ids:
                     if isinstance(aid_tuple[0], int):
                         validated_ids.append(aid_tuple[0])
                     else:
@@ -1797,10 +1784,10 @@ class Attendance(commands.Cog):
                             WHERE alliance_id IN ({placeholders})
                             ORDER BY name
                         """, validated_ids)
-                    special_alliances = cursor.fetchall()
+                    alliances = cursor.fetchall()
+                    return alliances, alliances, False
             
-            all_alliances = list({(aid, name) for aid, name in (server_alliances + special_alliances)})
-            return all_alliances, special_alliances, False
+            return [], [], False
                 
         except Exception as e:
             return [], [], False
@@ -1838,18 +1825,12 @@ class Attendance(commands.Cog):
                     cursor.execute("SELECT alliance_id, name FROM alliance_list ORDER BY alliance_id")
                     alliances = cursor.fetchall()
             else:
-                # Server admin - get server alliances + special permissions
-                with sqlite3.connect('db/users.sqlite') as users_db:
-                    cursor = users_db.cursor()
-                    cursor.execute("SELECT DISTINCT alliance FROM users WHERE server_id = ?", (interaction.guild.id,))
-                    server_alliances = set(row[0] for row in cursor.fetchall())
-                
+                # Non-global admin - get alliances from adminserver
                 with sqlite3.connect('db/settings.sqlite') as settings_db:
                     cursor = settings_db.cursor()
                     cursor.execute("SELECT alliances_id FROM adminserver WHERE admin = ?", (interaction.user.id,))
-                    special_permissions = set(row[0] for row in cursor.fetchall())
-                
-                allowed_alliances = server_alliances.union(special_permissions)
+                    special_permissions_raw = cursor.fetchall()
+                    allowed_alliances = set(row[0] for row in special_permissions_raw)
                 
                 if allowed_alliances:
                     with sqlite3.connect('db/alliance.sqlite') as db:
