@@ -1700,6 +1700,14 @@ class Attendance(commands.Cog):
 
     async def show_attendance_menu(self, interaction: discord.Interaction):
         """Show the main attendance menu"""
+        # Check if used in a server context
+        if interaction.guild is None:
+            await interaction.response.send_message(
+                "❌ This command can only be used in a server, not in DMs.",
+                ephemeral=True
+            )
+            return
+            
         embed = discord.Embed(
             title="📋 Attendance System",
             description=(
@@ -1717,7 +1725,7 @@ class Attendance(commands.Cog):
             color=discord.Color.blue()
         )
         
-        view = AttendanceView(self, interaction.user.id, interaction.guild_id)
+        view = AttendanceView(self, interaction.user.id, interaction.guild.id)
         await view.initialize_permissions_and_alliances()
         
         # Handle both regular and deferred interactions
@@ -1800,6 +1808,15 @@ class Attendance(commands.Cog):
     async def show_alliance_selection_for_marking(self, interaction: discord.Interaction):
         """Show alliance selection specifically for marking attendance"""
         try:
+            # Check if used in a server context
+            if interaction.guild is None:
+                error_embed = self._create_error_embed(
+                    "❌ Error",
+                    "This command can only be used in a server, not in DMs."
+                )
+                await interaction.response.send_message(embed=error_embed, ephemeral=True)
+                return
+                
             # Get admin permissions
             admin_result = await self._check_admin_permissions(interaction.user.id)
             if not admin_result:
@@ -1824,12 +1841,12 @@ class Attendance(commands.Cog):
                 # Server admin - get server alliances + special permissions
                 with sqlite3.connect('db/users.sqlite') as users_db:
                     cursor = users_db.cursor()
-                    cursor.execute("SELECT DISTINCT alliance FROM users WHERE server_id = ?", (interaction.guild_id,))
+                    cursor.execute("SELECT DISTINCT alliance FROM users WHERE server_id = ?", (interaction.guild.id,))
                     server_alliances = set(row[0] for row in cursor.fetchall())
                 
                 with sqlite3.connect('db/settings.sqlite') as settings_db:
                     cursor = settings_db.cursor()
-                    cursor.execute("SELECT alliance_id FROM admin_permissions WHERE admin_id = ?", (interaction.user.id,))
+                    cursor.execute("SELECT alliances_id FROM adminserver WHERE admin = ?", (interaction.user.id,))
                     special_permissions = set(row[0] for row in cursor.fetchall())
                 
                 allowed_alliances = server_alliances.union(special_permissions)
