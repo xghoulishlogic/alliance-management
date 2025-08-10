@@ -2116,18 +2116,44 @@ class Attendance(commands.Cog):
                 # Now update with actual attendance data
                 for fid, player_data in selected_players.items():
                     if player_data['attendance_type'] != 'not_recorded':
-                        # Update the record with actual attendance
+                        # First check if the player exists in attendance_records
                         cursor.execute("""
-                            UPDATE attendance_records 
-                            SET status = ?, points = ?, marked_at = ?
+                            SELECT COUNT(*) FROM attendance_records
                             WHERE player_id = ? AND session_id = ?
-                        """, (
-                            player_data['attendance_type'], 
-                            player_data['points'],
-                            datetime.utcnow().isoformat(),
-                            fid, 
-                            session_id
-                        ))
+                        """, (str(fid), session_id))
+                        
+                        exists = cursor.fetchone()[0] > 0
+                        
+                        if exists:
+                            # Update the record with actual attendance
+                            cursor.execute("""
+                                UPDATE attendance_records 
+                                SET status = ?, points = ?, marked_at = ?
+                                WHERE player_id = ? AND session_id = ?
+                            """, (
+                                player_data['attendance_type'], 
+                                player_data['points'],
+                                datetime.utcnow().isoformat(),
+                                str(fid), 
+                                session_id
+                            ))
+                        else:
+                            # Player doesn't exist (newly added to alliance), insert them
+                            cursor.execute("""
+                                INSERT INTO attendance_records 
+                                (player_id, player_name, session_id, session_name, alliance_id, alliance_name,
+                                 status, points, event_type, event_date, 
+                                 marked_at, marked_by, marked_by_username)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                str(fid), player_data['nickname'], session_id, session_name, 
+                                str(alliance_id), alliance_name,
+                                player_data['attendance_type'], player_data['points'], 
+                                event_type, 
+                                event_date.isoformat() if event_date else datetime.utcnow().isoformat(),
+                                datetime.utcnow().isoformat(), 
+                                str(interaction.user.id), interaction.user.name
+                            ))
                 
                 db.commit()
             
@@ -2202,7 +2228,6 @@ class Attendance(commands.Cog):
                 await interaction.edit_original_response(embed=error_embed, view=None)
             else:
                 await interaction.response.edit_message(embed=error_embed, view=None)
-
 
 class SessionSelectView(discord.ui.View):
     """Unified session select view for both marking and viewing"""
@@ -2340,245 +2365,6 @@ class SessionNameModal(discord.ui.Modal):
             session_name,
             is_edit=False
         )
-class AttendanceEditModal(discord.ui.Modal, title="Edit Attendance Details"):
-    def __init__(self, fid, nickname, attendance_type, parent_view, current_points):
-        super().__init__()
-        self.fid = fid
-        self.nickname = nickname
-        self.attendance_type = attendance_type
-        self.parent_view = parent_view
-
-        self.points_input = discord.ui.TextInput(
-            label="Points",
-            placeholder=f"Enter points (current: {current_points:,})",
-            required=False,
-            default=str(current_points) if current_points > 0 else "",
-            max_length=15
-        )
-        self.add_item(self.points_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            points = 0
-            points_value = self.points_input.value.strip()
-            if points_value:
-                points = parse_points(points_value)
-
-            # Add to parent view's edited players
-            self.parent_view.add_edited_player(self.fid, self.nickname, self.attendance_type, points)
-
-            # Show confirmation message
-            status_display = {
-                "present": "Present",
-                "absent": "Absent",
-                "not_recorded": "Not Recorded"
-            }.get(self.attendance_type, self.attendance_type)
-
-            embed = discord.Embed(
-                title=f"✏️ Editing Attendance - {self.parent_view.alliance_name}",
-                description=(
-                    f"**Session:** {self.parent_view.session_name}\n"
-                    f"**Total Players:** {len(self.parent_view.players)}\n"
-                    f"**Players Changed:** {len(self.parent_view.edited_players)}\n\n"
-                    f"✅ **{self.nickname}** updated to **{status_display}** with **{points:,} points**\n\n"
-                    "Select a player from the dropdown to edit their attendance.\n"
-                    "Use the buttons below to navigate, add new players, or save changes."
-                ),
-                color=discord.Color.green()
-            )
-
-            await interaction.response.edit_message(embed=embed, view=self.parent_view)
-
-        except ValueError as e:
-            await interaction.response.send_message(f"Error: {str(e)}", ephemeral=True)
-
-class EditPlayerSelectView(discord.ui.View):
-    def __init__(self, players, alliance_name, session_name, session_id, cog, page=0):
-        super().__init__(timeout=7200)
-        self.players = players
-        self.alliance_name = alliance_name
-        self.session_name = session_name
-        self.session_id = session_id
-        self.cog = cog
-        self.edited_players = {}
-        self.page = page
-        self.max_page = (len(players) - 1) // 25 if players else 0
-        self.update_select_menu()
-
-    def _get_status_emoji(self, status):
-        """Helper to get status emoji"""
-        return {"present": "✅", "absent": "❌", "not_recorded": "⚪"}.get(status, "👤")
-
-    def update_select_menu(self):
-        # Remove existing select menu
-        for item in self.children[:]:
-            if isinstance(item, discord.ui.Select):
-                self.remove_item(item)
-
-        start_idx = self.page * 25
-        end_idx = min(start_idx + 25, len(self.players))
-        current_players = self.players[start_idx:end_idx]
-
-        select = discord.ui.Select(
-            placeholder=f"👥 Select a player to edit... (Page {self.page + 1}/{self.max_page + 1})",
-            options=[
-                discord.SelectOption(
-                    label=f"{nickname[:40]}",
-                    value=str(idx),
-                    description=f"Status: {status if status != 'not_recorded' else 'Not Recorded'} | Points: {points:,}" if points > 0 else f"Status: {status if status != 'not_recorded' else 'Not Recorded'}",
-                    emoji=self._get_status_emoji(status)
-                ) for idx, (fid, nickname, status, points) in enumerate(current_players)
-            ]
-        )
-
-        async def select_callback(interaction: discord.Interaction):
-            idx = int(select.values[0])
-            if 0 <= idx < len(current_players):
-                selected_player = current_players[idx]
-                await self.show_player_edit_options(interaction, selected_player)
-
-        select.callback = select_callback
-        self.add_item(select)
-
-        # Update navigation button states
-        prev_button = next((item for item in self.children if hasattr(item, 'label') and item.label == "◀️"), None)
-        next_button = next((item for item in self.children if hasattr(item, 'label') and item.label == "▶️"), None)
-
-        if prev_button:
-            prev_button.disabled = self.page == 0
-        if next_button:
-            next_button.disabled = self.page == self.max_page
-
-    async def show_player_edit_options(self, interaction: discord.Interaction, player):
-        fid, nickname, status, points = player
-
-        # Create new view with editing options for this player
-        edit_view = PlayerEditView(player, self)
-
-        embed = discord.Embed(
-            title=f"✏️ Edit Attendance - {nickname}",
-            description=(
-                f"**Player:** {nickname}\n"
-                f"**FID:** {fid}\n"
-                f"**Current Status:** {status}\n"
-                f"**Current Points:** {points:,}\n"
-                f"**Session:** {self.session_name}\n\n"
-                "Please select the new attendance status for this player:"
-            ),
-            color=discord.Color.blue()
-        )
-
-        await interaction.response.edit_message(embed=embed, view=edit_view)
-
-    @discord.ui.button(label="◀️", style=discord.ButtonStyle.secondary, row=1)
-    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = max(0, self.page - 1)
-        self.update_select_menu()
-        await self.update_main_embed(interaction)
-
-    @discord.ui.button(label="▶️", style=discord.ButtonStyle.secondary, row=1)
-    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.page = min(self.max_page, self.page + 1)
-        self.update_select_menu()
-        await self.update_main_embed(interaction)
-
-    @discord.ui.button(label="➕ Add Player", style=discord.ButtonStyle.success, row=1)
-    async def add_player_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Show alliance members that are not in the current attendance
-        await self.cog.show_add_player_interface(interaction, self.alliance_name, self.session_name, self.session_id, [p[0] for p in self.players])
-
-    @discord.ui.button(label="✅ Save Changes", style=discord.ButtonStyle.primary, row=2)
-    async def save_changes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not self.edited_players:
-            await interaction.response.send_message("No changes were made.", ephemeral=True)
-            return
-
-        await self.cog.save_edited_session(interaction, self.edited_players, self.session_id, self.session_name, self.alliance_name)
-
-    @discord.ui.button(label="⬅️ Back", style=discord.ButtonStyle.secondary, row=2)
-    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.cog.show_attendance_menu(interaction)
-
-    async def update_main_embed(self, interaction: discord.Interaction):
-        edited_count = len(self.edited_players)
-        total_count = len(self.players)
-
-        embed = discord.Embed(
-            title=f"✏️ Editing Attendance - {self.alliance_name}",
-            description=(
-                f"**Session:** {self.session_name}\n"
-                f"**Total Players:** {total_count}\n"
-                f"**Players Changed:** {edited_count}\n"
-                f"**Current Page:** {self.page + 1}/{self.max_page + 1}\n\n"
-                "Select a player from the dropdown to edit their attendance.\n"
-                "Use the buttons below to navigate, add new players, or save changes."
-            ),
-            color=discord.Color.blue()
-        )
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    def add_edited_player(self, fid, nickname, attendance_type, points):
-        self.edited_players[fid] = {
-            'nickname': nickname,
-            'attendance_type': attendance_type,
-            'points': points
-        }
-
-class PlayerEditView(discord.ui.View):
-    def __init__(self, player, parent_view):
-        super().__init__(timeout=7200)
-        self.player = player
-        self.parent_view = parent_view
-        self.fid, self.nickname, self.current_status, self.current_points = player
-
-    @discord.ui.button(label="Present", style=discord.ButtonStyle.success, custom_id="present_edit")
-    async def present_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._edit_attendance(interaction, "present")
-
-    @discord.ui.button(label="Absent", style=discord.ButtonStyle.danger, custom_id="absent_edit")
-    async def absent_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._edit_attendance(interaction, "absent")
-
-    @discord.ui.button(label="Not Recorded", style=discord.ButtonStyle.secondary, custom_id="not_recorded_edit")
-    async def not_recorded_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._edit_attendance(interaction, "not_recorded")
-
-    @discord.ui.button(label="⬅️ Back to List", style=discord.ButtonStyle.secondary, custom_id="back_to_list_edit")
-    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.parent_view.update_main_embed(interaction)
-
-    async def _edit_attendance(self, interaction, attendance_type):
-        """Unified attendance editing method"""
-        if attendance_type == "present":
-            modal = AttendanceEditModal(self.fid, self.nickname, attendance_type, self.parent_view, self.current_points)
-            await interaction.response.send_modal(modal)
-        else:
-            # For absent/not recorded, set points to 0
-            self.parent_view.add_edited_player(self.fid, self.nickname, attendance_type, 0)
-
-            # Show confirmation message
-            status_display = {
-                "present": "Present",
-                "absent": "Absent",
-                "not_recorded": "Not Recorded"
-            }.get(attendance_type, attendance_type)
-
-            embed = discord.Embed(
-                title=f"✏️ Editing Attendance - {self.parent_view.alliance_name}",
-                description=(
-                    f"**Session:** {self.parent_view.session_name}\n"
-                    f"**Total Players:** {len(self.parent_view.players)}\n"
-                    f"**Players Changed:** {len(self.parent_view.edited_players)}\n\n"
-                    f"✅ **{self.nickname}** updated to **{status_display}**\n\n"
-                    "Select a player from the dropdown to edit their attendance.\n"
-                    "Use the buttons below to navigate, add new players, or save changes."
-                ),
-                color=discord.Color.green()
-            )
-
-            await interaction.response.edit_message(embed=embed, view=self.parent_view)
-
 async def setup(bot):
     try:
         cog = Attendance(bot)
