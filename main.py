@@ -253,7 +253,6 @@ def check_and_install_requirements():
             try:
                 cmd = [sys.executable, "-m", "pip", "install", package, "--no-cache-dir"]
                 
-                
                 subprocess.check_call(cmd, timeout=1200, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print(f"✓ {package} installed successfully")
                 
@@ -296,8 +295,12 @@ except ImportError as e:
 
 import warnings
 import shutil
+import stat
 
-print("Removing unnecessary files...")
+def remove_readonly(func, path, _):
+    """Clear the readonly bit and reattempt the removal"""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
 
 try: # Clean up old ddddocr dependency if present
     try: # Try importlib.metadata approach first
@@ -328,7 +331,7 @@ except Exception as e:
 v1_path = "V1oldbot"
 if os.path.exists(v1_path) and os.path.isdir(v1_path):
     try:
-        shutil.rmtree(v1_path)
+        shutil.rmtree(v1_path, onexc=remove_readonly)
         print(f"Removed directory: {v1_path}")
     except PermissionError:
         print(f"Warning: Access Denied. Could not remove legacy directory '{v1_path}'. Please check permissions or if files are in use, then remove manually if needed.")
@@ -338,7 +341,7 @@ if os.path.exists(v1_path) and os.path.isdir(v1_path):
 v2_path = "V2Old"
 if os.path.exists(v2_path) and os.path.isdir(v2_path):
     try:
-        shutil.rmtree(v2_path)
+        shutil.rmtree(v2_path, onexc=remove_readonly)
         print(f"Removed directory: {v2_path}")
     except PermissionError:
         print(f"Warning: Access Denied. Could not remove legacy directory '{v2_path}'. Please check permissions or if files are in use, then remove manually if needed.")
@@ -347,15 +350,14 @@ if os.path.exists(v2_path) and os.path.isdir(v2_path):
 
 txt_path = "autoupdateinfo.txt"
 if os.path.exists(txt_path) and os.path.isfile(txt_path): 
-    try:
+    try: # Try to remove read-only attribute first
+        os.chmod(txt_path, stat.S_IWRITE)
         os.remove(txt_path)
         print(f"Removed file: {txt_path}")
     except PermissionError:
         print(f"Warning: Access Denied. Could not remove legacy file '{txt_path}'. Please check permissions or if the file is in use, then remove it manually if needed.")
     except OSError as e:
         print(f"Warning: Could not remove legacy file '{txt_path}': {e}")
-
-print("Cleanup attempt finished.")
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
