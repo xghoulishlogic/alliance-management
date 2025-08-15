@@ -1053,6 +1053,10 @@ class GiftOperations(commands.Cog):
                 status = "SIGN_ERROR"
                 self.logger.error(f"[SIGN ERROR] Sign error detected for FID {player_id}, code {giftcode}")
                 self.logger.error(f"[SIGN ERROR] Response: {response_json_redeem}")
+            elif msg == "STOVE_LV ERROR." and err_code == 40006:
+                status = "STOVE_LV_ERROR"
+                self.logger.error(f"[STOVE LVL ERROR] Furnace level is too low for FID {player_id}, code {giftcode}")
+                self.logger.error(f"[STOVE LVL ERROR] Response: {response_json_redeem}")
             else:
                 status = "UNKNOWN_API_RESPONSE"
                 self.logger.info(f"Unknown API response for {player_id}: msg='{msg}', err_code={err_code}")
