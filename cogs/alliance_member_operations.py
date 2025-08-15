@@ -103,6 +103,23 @@ class AllianceMemberOperations(commands.Cog):
         if not os.path.exists(self.log_directory):
             os.makedirs(self.log_directory)
         self.log_file = os.path.join(self.log_directory, 'alliance_memberlog.txt')
+        
+        # Rate limiting configuration for dual-API support
+        self.api1_url = 'https://wos-giftcode-api.centurygame.com/api/player'
+        self.api2_url = 'https://gof-report-api-formal.centurygame.com/api/player'
+        self.api1_requests = []  # Timestamps of API1 requests
+        self.api2_requests = []  # Timestamps of API2 requests
+        self.rate_limit_per_api = 30
+        self.rate_limit_window = 60  # seconds
+        self.last_api_used = 1  # Track which API was used last
+        self.dual_api_mode = False  # Set after availability check
+        self.available_apis = []    # List of available API numbers [1] or [1,2]
+        self.request_delay = 2.0    # Default for single API
+        
+        # Operation queue to prevent concurrent member additions
+        self.operation_lock = asyncio.Lock()
+        self.operation_queue = []
+        self.current_operation = None
 
     def log_message(self, message: str):
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -110,8 +127,114 @@ class AllianceMemberOperations(commands.Cog):
         
         with open(self.log_file, 'a', encoding='utf-8') as f:
             f.write(log_entry)
+    
+    async def _check_apis_availability(self):
+        """Check which APIs are available before starting member addition"""
+        api_status = {
+            "api1_available": False,
+            "api2_available": False,
+            "api1_url": self.api1_url,
+            "api2_url": self.api2_url
+        }
         
-
+        # Use a known test FID - we'll use the first one from a typical list
+        test_fid = "46765089"
+        
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        connector = aiohttp.TCPConnector(ssl=ssl_context)
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # Test API 1
+            try:
+                current_time = int(time.time() * 1000)
+                form = f"fid={test_fid}&time={current_time}"
+                sign = hashlib.md5((form + SECRET).encode('utf-8')).hexdigest()
+                form = f"sign={sign}&{form}"
+                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+                
+                async with session.post(self.api1_url, headers=headers, data=form, timeout=5) as response:
+                    # API is available if we get 200 (success) or 429 (rate limit)
+                    api_status["api1_available"] = response.status in [200, 429]
+                    self.log_message(f"API1 availability check: Status {response.status}")
+            except Exception as e:
+                self.log_message(f"API1 availability check failed: {str(e)}")
+                api_status["api1_available"] = False
+            
+            # Test API 2
+            try:
+                current_time = int(time.time() * 1000)
+                form = f"fid={test_fid}&time={current_time}"
+                sign = hashlib.md5((form + SECRET).encode('utf-8')).hexdigest()
+                form = f"sign={sign}&{form}"
+                headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+                
+                async with session.post(self.api2_url, headers=headers, data=form, timeout=5) as response:
+                    api_status["api2_available"] = response.status in [200, 429]
+                    self.log_message(f"API2 availability check: Status {response.status}")
+            except Exception as e:
+                self.log_message(f"API2 availability check failed: {str(e)}")
+                api_status["api2_available"] = False
+        
+        return api_status
+    
+    def _get_available_api(self):
+        """Determine which API to use next based on rate limits"""
+        now = time.time()
+        
+        # Clean old requests outside the rate limit window
+        self.api1_requests = [t for t in self.api1_requests if now - t < self.rate_limit_window]
+        self.api2_requests = [t for t in self.api2_requests if now - t < self.rate_limit_window]
+        
+        if not self.dual_api_mode:
+            # Single API mode - simpler logic
+            api_num = self.available_apis[0] if self.available_apis else 1
+            requests = self.api1_requests if api_num == 1 else self.api2_requests
+            
+            if len(requests) < self.rate_limit_per_api:
+                return api_num
+            else:
+                # Calculate wait time until oldest request expires
+                wait_time = self.rate_limit_window - (now - requests[0]) if requests else 0
+                return None, max(0, wait_time)
+        else:
+            # Dual API mode - intelligent switching
+            api1_available = 1 in self.available_apis and len(self.api1_requests) < self.rate_limit_per_api
+            api2_available = 2 in self.available_apis and len(self.api2_requests) < self.rate_limit_per_api
+            
+            if api1_available and api2_available:
+                # Both available - alternate or use the one with more capacity
+                if self.last_api_used == 1:
+                    return 2
+                else:
+                    return 1
+            elif api1_available:
+                return 1
+            elif api2_available:
+                return 2
+            else:
+                # Both at limit - calculate minimum wait time
+                wait_time1 = self.rate_limit_window - (now - self.api1_requests[0]) if self.api1_requests else 0
+                wait_time2 = self.rate_limit_window - (now - self.api2_requests[0]) if self.api2_requests else 0
+                min_wait = min(wait_time1, wait_time2) if self.dual_api_mode else wait_time1
+                return None, max(0, min_wait)
+    
+    def _record_api_request(self, api_num):
+        """Record timestamp of API request"""
+        now = time.time()
+        if api_num == 1:
+            self.api1_requests.append(now)
+        else:
+            self.api2_requests.append(now)
+        self.last_api_used = api_num
+    
+    def _get_wait_time(self):
+        """Calculate wait time when both APIs are at limit"""
+        now = time.time()
+        wait_time1 = self.rate_limit_window - (now - self.api1_requests[0]) if self.api1_requests else 0
+        wait_time2 = self.rate_limit_window - (now - self.api2_requests[0]) if self.api2_requests else 0
+        return max(0, min(wait_time1, wait_time2))
 
     def get_fl_emoji(self, fl_level: int) -> str:
         for level_range, emoji in self.fl_emojis.items():
@@ -1068,7 +1191,80 @@ class AllianceMemberOperations(commands.Cog):
         if not await self.is_admin(interaction.user.id):
             await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
             return
+        
+        # Check if an operation is already running
+        if self.operation_lock.locked():
+            # Add to queue
+            queue_position = len(self.operation_queue) + 1
+            operation_info = {
+                'interaction': interaction,
+                'alliance_id': alliance_id,
+                'alliance_name': alliance_name,
+                'ids': ids,
+                'position': queue_position
+            }
+            self.operation_queue.append(operation_info)
+            
+            queue_embed = discord.Embed(
+                title="⏳ Operation Queued",
+                description=(
+                    f"Another member addition operation is currently in progress.\n\n"
+                    f"**Your operation has been queued:**\n"
+                    f"📍 Queue Position: `{queue_position}`\n"
+                    f"🏰 Alliance: {alliance_name}\n"
+                    f"👥 Members to add: {len(ids.split(',') if ',' in ids else ids.split('\n'))}\n\n"
+                    f"You will be notified when your operation starts."
+                ),
+                color=discord.Color.orange()
+            )
+            await interaction.response.send_message(embed=queue_embed, ephemeral=True)
+            return
 
+        # Acquire the lock for this operation
+        async with self.operation_lock:
+            await self._process_add_user(interaction, alliance_id, alliance_name, ids)
+            
+        # After completing, check if there are queued operations
+        await self._process_queued_operations()
+
+    async def _process_queued_operations(self):
+        """Process any queued operations after the current one completes"""
+        while self.operation_queue:
+            next_operation = self.operation_queue.pop(0)
+            
+            # Update remaining operations' positions
+            for i, op in enumerate(self.operation_queue):
+                op['position'] = i + 1
+            
+            # Notify the user their operation is starting
+            start_embed = discord.Embed(
+                title="🚀 Operation Starting",
+                description=(
+                    f"Your member addition operation is now starting!\n\n"
+                    f"🏰 Alliance: {next_operation['alliance_name']}\n"
+                    f"👥 Members to add: {len(next_operation['ids'].split(',') if ',' in next_operation['ids'] else next_operation['ids'].split('\n'))}"
+                ),
+                color=discord.Color.green()
+            )
+            
+            try:
+                # Send a new message to notify the user
+                await next_operation['interaction'].followup.send(embed=start_embed, ephemeral=True)
+                
+                # Process the operation
+                async with self.operation_lock:
+                    await self._process_add_user(
+                        next_operation['interaction'],
+                        next_operation['alliance_id'],
+                        next_operation['alliance_name'],
+                        next_operation['ids']
+                    )
+            except Exception as e:
+                self.log_message(f"Error processing queued operation: {str(e)}")
+                continue
+
+    async def _process_add_user(self, interaction: discord.Interaction, alliance_id: str, alliance_name: str, ids: str):
+        """Process the actual user addition operation"""
         # Handle both comma-separated and newline-separated FIDs
         if '\n' in ids:
             ids_list = [fid.strip() for fid in ids.split('\n') if fid.strip()]
@@ -1097,8 +1293,52 @@ class AllianceMemberOperations(commands.Cog):
             inline=False
         )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        message = await interaction.original_response()
+        # Check if this is a queued operation (already has a response)
+        if interaction.response.is_done():
+            # This is a queued operation, send as followup
+            message = await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            # This is a direct operation
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            message = await interaction.original_response()
+        
+        # Reset rate limit tracking for this operation
+        self.api1_requests = []
+        self.api2_requests = []
+        
+        # Check API availability before starting
+        embed.description = "🔍 Checking API availability..."
+        await message.edit(embed=embed)
+        
+        api_status = await self._check_apis_availability()
+        
+        if api_status["api1_available"] and api_status["api2_available"]:
+            self.dual_api_mode = True
+            self.available_apis = [1, 2]
+            self.request_delay = 1.0  # 1 second delay for dual mode (1 member/second)
+            mode_text = "✅ Dual-API mode active (1 member/second)"
+        elif api_status["api1_available"]:
+            self.dual_api_mode = False
+            self.available_apis = [1]
+            self.request_delay = 2.0  # 1 member every 2 seconds for single API
+            mode_text = "⚠️ Single-API mode (1 member/2 seconds) - API 2 unavailable"
+        elif api_status["api2_available"]:
+            self.dual_api_mode = False
+            self.available_apis = [2]
+            self.request_delay = 2.0
+            mode_text = "⚠️ Single-API mode (1 member/2 seconds) - API 1 unavailable"
+        else:
+            # Both APIs down
+            embed.description = "❌ Both APIs are unavailable. Cannot proceed."
+            embed.color = discord.Color.red()
+            await message.edit(embed=embed)
+            return
+        
+        # Update embed with mode information
+        queue_info = f"\n📋 **Operations in queue:** {len(self.operation_queue)}" if self.operation_queue else ""
+        embed.description = f"Processing {total_users} members...\n{mode_text}{queue_info}\n\n**Progress:** `0/{total_users}`"
+        embed.color = discord.Color.blue()
+        await message.edit(embed=embed)
 
         added_count = 0
         error_count = 0 
@@ -1118,145 +1358,193 @@ class AllianceMemberOperations(commands.Cog):
                 log_file.write(f"Alliance: {alliance_name} (ID: {alliance_id})\n")
                 log_file.write(f"FIDs to Process: {ids.replace(chr(10), ', ')}\n")
                 log_file.write(f"Total Members to Process: {total_users}\n")
+                log_file.write(f"API Mode: {mode_text}\n")
+                log_file.write(f"Available APIs: {self.available_apis}\n")
+                log_file.write(f"Operations in Queue: {len(self.operation_queue)}\n")
                 log_file.write('-'*50 + '\n')
 
-            index = 0
-            while index < len(ids_list):
-                fid = ids_list[index]
-                try:
-                    embed.description = f"Processing {total_users} members...\n\n**Progress:** `{index + 1}/{total_users}`"
-                    
-                    async with aiohttp.ClientSession() as session:
+            # Create SSL context and session outside the loop for efficiency
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            
+            async with aiohttp.ClientSession(connector=connector) as session:
+                index = 0
+                while index < len(ids_list):
+                    fid = ids_list[index]
+                    try:
+                        # Check rate limits and get available API
+                        api_result = self._get_available_api()
+                        
+                        if api_result is None or (isinstance(api_result, tuple) and api_result[0] is None):
+                            # Both APIs at limit, need to wait
+                            wait_time = api_result[1] if isinstance(api_result, tuple) else self._get_wait_time()
+                            queue_info = f"\n📋 **Operations in queue:** {len(self.operation_queue)}" if self.operation_queue else ""
+                            embed.description = f"⚠️ Rate limit reached on {'both APIs' if self.dual_api_mode else 'API'}. Waiting {wait_time:.1f} seconds...{queue_info}"
+                            embed.color = discord.Color.orange()
+                            await message.edit(embed=embed)
+                            
+                            with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                                log_file.write(f"Rate limit reached - Waiting {wait_time:.1f} seconds\n")
+                            
+                            await asyncio.sleep(wait_time)
+                            embed.color = discord.Color.blue()
+                            continue  # Retry this request
+                        
+                        # Get the API number to use
+                        api_num = api_result if isinstance(api_result, int) else api_result
+                        api_url = self.api1_url if api_num == 1 else self.api2_url
+                        
+                        # Update progress with API info
+                        api_info = f" (API {api_num})" if self.dual_api_mode else ""
+                        queue_info = f"\n📋 **Operations in queue:** {len(self.operation_queue)}" if self.operation_queue else ""
+                        embed.description = f"Processing {total_users} members...\n{mode_text}{queue_info}\n\n**Progress:** `{index + 1}/{total_users}`{api_info}"
+                        await message.edit(embed=embed)
+                        
+                        # Prepare request
                         current_time = int(time.time() * 1000)
                         form = f"fid={fid}&time={current_time}"
                         sign = hashlib.md5((form + SECRET).encode('utf-8')).hexdigest()
                         form = f"sign={sign}&{form}"
                         headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-
-                        ssl_context = ssl.create_default_context()
-                        ssl_context.check_hostname = False
-                        ssl_context.verify_mode = ssl.CERT_NONE
-
-                        connector = aiohttp.TCPConnector(ssl=ssl_context)
-                        async with aiohttp.ClientSession(connector=connector) as session:
-                            async with session.post('https://wos-giftcode-api.centurygame.com/api/player', headers=headers, data=form) as response:
+                        
+                        async with session.post(api_url, headers=headers, data=form) as response:
+                            # Record the API request
+                            self._record_api_request(api_num)
+                            
+                            with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                                log_file.write(f"\nAPI{api_num} Response for FID {fid}:\n")
+                                log_file.write(f"Status Code: {response.status}\n")
+                                log_file.write(f"URL: {api_url}\n")
+                            
+                            if response.status == 429:
+                                # This shouldn't happen with our rate limiting, but handle it anyway
                                 with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                    log_file.write(f"\nAPI Response for FID {fid}:\n")
-                                    log_file.write(f"Status Code: {response.status}\n")
+                                    log_file.write(f"Unexpected rate limit on API{api_num}\n")
                                 
-                                if response.status == 429:
+                                # Don't increment index, retry with other API
+                                continue
+                            
+                            if response.status == 200:
+                                data = await response.json()
+                                with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                                    log_file.write(f"API Response Data: {str(data)}\n")
+                                
+                                if not data.get('data'):
                                     with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                        log_file.write("Rate Limit exceeded - Waiting 60 seconds\n")
+                                        log_file.write(f"ERROR: No data found for FID {fid}\n")
+                                    error_count += 1
+                                    if fid not in error_users:
+                                        error_users.append(fid)
+                                    with open(self.log_file, 'a', encoding='utf-8') as f:
+                                        f.write(f"[{timestamp}] No data found for fid: {fid}\n")
+                                        f.write(f"[{timestamp}] API Response: {str(data)}\n")
                                     
-                                    embed.description = "⚠️ API rate limit reached. Waiting for 60 seconds..."
-                                    embed.color = discord.Color.orange()
+                                    embed.set_field_at(
+                                        1,
+                                        name=f"❌ Failed ({error_count}/{total_users})",
+                                        value="Error list cannot be displayed due to exceeding 70 users" if len(error_users) > 70 
+                                        else ", ".join(error_users) or "-",
+                                        inline=False
+                                    )
                                     await message.edit(embed=embed)
-                                    await asyncio.sleep(60)
-                                    embed.description = f"Processing {total_users} members...\n\n**Progress:** `{index + 1}/{total_users}`"
-                                    embed.color = discord.Color.blue()
-                                    await message.edit(embed=embed)
+                                    index += 1
                                     continue
 
-                                if response.status == 200:
-                                    data = await response.json()
-                                    with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                        log_file.write(f"API Response Data: {str(data)}\n")
-                                    
-                                    if not data.get('data'):
-                                        with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                            log_file.write(f"ERROR: No data found for FID {fid}\n")
-                                        error_count += 1
-                                        if fid not in error_users:
-                                            error_users.append(fid)
-                                        with open(self.log_file, 'a', encoding='utf-8') as f:
-                                            f.write(f"[{timestamp}] No data found for fid: {fid}\n")
-                                            f.write(f"[{timestamp}] API Response: {str(data)}\n")
-                                        
-                                        embed.set_field_at(
-                                            1,
-                                            name=f"❌ Failed ({error_count}/{total_users})",
-                                            value="Error list cannot be displayed due to exceeding 70 users" if len(error_users) > 70 
-                                            else ", ".join(error_users) or "-",
-                                            inline=False
-                                        )
-                                        await message.edit(embed=embed)
-                                        index += 1
-                                        continue
+                                nickname = data['data'].get('nickname')
+                                furnace_lv = data['data'].get('stove_lv', 0)
+                                stove_lv_content = data['data'].get('stove_lv_content', None)
+                                kid = data['data'].get('kid', None)
 
-                                    nickname = data['data'].get('nickname')
-                                    furnace_lv = data['data'].get('stove_lv', 0)
-                                    stove_lv_content = data['data'].get('stove_lv_content', None)
-                                    kid = data['data'].get('kid', None)
+                                if nickname:
+                                    self.c_users.execute("SELECT * FROM users WHERE fid=?", (fid,))
+                                    result = self.c_users.fetchone()
 
-                                    if nickname:
-                                        self.c_users.execute("SELECT * FROM users WHERE fid=?", (fid,))
-                                        result = self.c_users.fetchone()
-
-                                        if result is None:
-                                            try:
-                                                self.c_users.execute("""
-                                                    INSERT INTO users (fid, nickname, furnace_lv, kid, stove_lv_content, alliance)
-                                                    VALUES (?, ?, ?, ?, ?, ?)
-                                                """, (fid, nickname, furnace_lv, kid, stove_lv_content, alliance_id))
-                                                self.conn_users.commit()
-                                                
-                                                with open(self.log_file, 'a', encoding='utf-8') as f:
-                                                    f.write(f"[{timestamp}] Successfully added member - FID: {fid}, Nickname: {nickname}, Level: {furnace_lv}\n")
-                                                    f.write(f"[{timestamp}] API Response: {str(data)}\n")
-                                                
-                                                added_count += 1
-                                                added_users.append((fid, nickname))
-                                                
-                                                embed.set_field_at(
-                                                    0,
-                                                    name=f"✅ Successfully Added ({added_count}/{total_users})",
-                                                    value="User list cannot be displayed due to exceeding 70 users" if len(added_users) > 70 
-                                                    else ", ".join([n for _, n in added_users]) or "-",
-                                                    inline=False
-                                                )
-                                                await message.edit(embed=embed)
-                                                
-                                            except Exception as e:
-                                                with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                                    log_file.write(f"ERROR: Database error for FID {fid}: {str(e)}\n")
-                                                error_count += 1
-                                                error_users.append(fid)
-                                                
-                                                embed.set_field_at(
-                                                    1,
-                                                    name=f"❌ Failed ({error_count}/{total_users})",
-                                                    value="Error list cannot be displayed due to exceeding 70 users" if len(error_users) > 70 
-                                                    else ", ".join(error_users) or "-",
-                                                    inline=False
-                                                )
-                                                await message.edit(embed=embed)
-                                        else:
-                                            with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                                log_file.write(f"WARNING: Member already exists - {nickname} (FID: {fid})\n")
-                                            already_exists_count += 1
-                                            already_exists_users.append((fid, nickname))
+                                    if result is None:
+                                        try:
+                                            self.c_users.execute("""
+                                                INSERT INTO users (fid, nickname, furnace_lv, kid, stove_lv_content, alliance)
+                                                VALUES (?, ?, ?, ?, ?, ?)
+                                            """, (fid, nickname, furnace_lv, kid, stove_lv_content, alliance_id))
+                                            self.conn_users.commit()
+                                            
+                                            with open(self.log_file, 'a', encoding='utf-8') as f:
+                                                f.write(f"[{timestamp}] Successfully added member - FID: {fid}, Nickname: {nickname}, Level: {furnace_lv}\n")
+                                                f.write(f"[{timestamp}] API Response: {str(data)}\n")
+                                            
+                                            added_count += 1
+                                            added_users.append((fid, nickname))
                                             
                                             embed.set_field_at(
-                                                2,
-                                                name=f"⚠️ Already Exists ({already_exists_count}/{total_users})",
-                                                value="Existing user list cannot be displayed due to exceeding 70 users" if len(already_exists_users) > 70 
-                                                else ", ".join([n for _, n in already_exists_users]) or "-",
+                                                0,
+                                                name=f"✅ Successfully Added ({added_count}/{total_users})",
+                                                value="User list cannot be displayed due to exceeding 70 users" if len(added_users) > 70 
+                                                else ", ".join([n for _, n in added_users]) or "-",
+                                                inline=False
+                                            )
+                                            await message.edit(embed=embed)
+                                            
+                                        except Exception as e:
+                                            with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                                                log_file.write(f"ERROR: Database error for FID {fid}: {str(e)}\n")
+                                            error_count += 1
+                                            error_users.append(fid)
+                                            
+                                            embed.set_field_at(
+                                                1,
+                                                name=f"❌ Failed ({error_count}/{total_users})",
+                                                value="Error list cannot be displayed due to exceeding 70 users" if len(error_users) > 70 
+                                                else ", ".join(error_users) or "-",
                                                 inline=False
                                             )
                                             await message.edit(embed=embed)
                                     else:
-                                        error_count += 1
-                                        error_users.append(fid)
+                                        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                                            log_file.write(f"WARNING: Member already exists - {nickname} (FID: {fid})\n")
+                                        already_exists_count += 1
+                                        already_exists_users.append((fid, nickname))
+                                        
+                                        embed.set_field_at(
+                                            2,
+                                            name=f"⚠️ Already Exists ({already_exists_count}/{total_users})",
+                                            value="Existing user list cannot be displayed due to exceeding 70 users" if len(already_exists_users) > 70 
+                                            else ", ".join([n for _, n in already_exists_users]) or "-",
+                                            inline=False
+                                        )
+                                        await message.edit(embed=embed)
+                                else:
+                                    error_count += 1
+                                    error_users.append(fid)
+                            else:
+                                # Handle non-200 responses (other than 429)
+                                with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                                    log_file.write(f"ERROR: Unexpected status {response.status} for FID {fid}\n")
+                                error_count += 1
+                                if fid not in error_users:
+                                    error_users.append(fid)
+                                embed.set_field_at(
+                                    1,
+                                    name=f"❌ Failed ({error_count}/{total_users})",
+                                    value="Error list cannot be displayed due to exceeding 70 users" if len(error_users) > 70 
+                                    else ", ".join(error_users) or "-",
+                                    inline=False
+                                )
+                                await message.edit(embed=embed)
+                        
+                        # Add delay between requests based on mode
+                        if index < len(ids_list) - 1:  # Don't delay after the last request
+                            await asyncio.sleep(self.request_delay)
+                        
+                        index += 1
 
-                    index += 1
-
-                except Exception as e:
-                    with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                        log_file.write(f"ERROR: Request failed for FID {fid}: {str(e)}\n")
-                    error_count += 1
-                    error_users.append(fid)
-                    await message.edit(embed=embed)
-                    index += 1
+                    except Exception as e:
+                        with open(log_file_path, 'a', encoding='utf-8') as log_file:
+                            log_file.write(f"ERROR: Request failed for FID {fid}: {str(e)}\n")
+                        error_count += 1
+                        error_users.append(fid)
+                        await message.edit(embed=embed)
+                        index += 1
 
             embed.set_field_at(0, name=f"✅ Successfully Added ({added_count}/{total_users})",
                 value="User list cannot be displayed due to exceeding 70 users" if len(added_users) > 70 
@@ -1294,7 +1582,8 @@ class AllianceMemberOperations(commands.Cog):
                             description=(
                                 f"**Alliance:** {alliance_name}\n"
                                 f"**Administrator:** {interaction.user.name} (`{interaction.user.id}`)\n"
-                                f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                                f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                f"**API Mode:** {mode_text}\n\n"
                                 f"**Results:**\n"
                                 f"✅ Successfully Added: {added_count}\n"
                                 f"❌ Failed: {error_count}\n"
@@ -1323,6 +1612,9 @@ class AllianceMemberOperations(commands.Cog):
                 log_file.write(f"Successfully Added: {added_count}\n")
                 log_file.write(f"Failed: {error_count}\n")
                 log_file.write(f"Already Exists: {already_exists_count}\n")
+                log_file.write(f"API Mode: {mode_text}\n")
+                log_file.write(f"API1 Requests: {len(self.api1_requests)}\n")
+                log_file.write(f"API2 Requests: {len(self.api2_requests)}\n")
                 log_file.write(f"{'='*50}\n")
 
         except Exception as e:
@@ -1330,8 +1622,19 @@ class AllianceMemberOperations(commands.Cog):
                 log_file.write(f"CRITICAL ERROR: {str(e)}\n")
                 log_file.write(f"{'='*50}\n")
 
+        # Calculate total processing time
+        end_time = datetime.now()
+        start_time = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+        processing_time = (end_time - start_time).total_seconds()
+        
+        queue_info = f"\n📋 **Operations still in queue:** {len(self.operation_queue)}" if self.operation_queue else ""
+        
         embed.title = "✅ User Addition Completed"
-        embed.description = f"Process completed for {total_users} members."
+        embed.description = (
+            f"Process completed for {total_users} members.\n"
+            f"**API Mode:** {mode_text}\n"
+            f"**Processing Time:** {processing_time:.1f} seconds{queue_info}"
+        )
         embed.color = discord.Color.green()
         await message.edit(embed=embed)
 
