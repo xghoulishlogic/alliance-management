@@ -1,19 +1,14 @@
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands
-import aiohttp
-import hashlib
-import time
 import sqlite3
 import asyncio
 from datetime import datetime
 from colorama import Fore, Style
 import os
-from aiohttp_socks import ProxyConnector
 import traceback
-import ssl
-
-SECRET = 'tB87#kPtkxqOS2'
+import logging
+from logging.handlers import RotatingFileHandler
+from .login_handler import LoginHandler
 
 level_mapping = {
     31: "30-1", 32: "30-2", 33: "30-3", 34: "30-4",
@@ -35,6 +30,34 @@ class Control(commands.Cog):
         self.conn_alliance = sqlite3.connect('db/alliance.sqlite')
         self.conn_users = sqlite3.connect('db/users.sqlite')
         self.conn_changes = sqlite3.connect('db/changes.sqlite')
+        
+        # Setup logger for alliance control
+        self.logger = logging.getLogger('alliance_control')
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = False
+        
+        # Clear existing handlers
+        if self.logger.hasHandlers():
+            self.logger.handlers.clear()
+        
+        # Create log directory if it doesn't exist
+        os.makedirs('log', exist_ok=True)
+        
+        # Rotating file handler for alliance control logs
+        # maxBytes = 1MB (1024 * 1024), backupCount = 1
+        file_handler = RotatingFileHandler(
+            'log/alliance_control.txt',
+            maxBytes=1024*1024,  # 1MB
+            backupCount=1,
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.INFO)
+        
+        # Formatter
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        
+        self.logger.addHandler(file_handler)
         self.cursor_alliance = self.conn_alliance.cursor()
         self.cursor_users = self.conn_users.cursor()
         self.cursor_changes = self.conn_changes.cursor()
@@ -59,9 +82,8 @@ class Control(commands.Cog):
         self.is_running = {}
         self.monitor_started = False
         
-        self.control_queue = asyncio.Queue()
-        self.control_lock = asyncio.Lock()
-        self.current_control = None
+        # Initialize login handler for centralized queue management
+        self.login_handler = LoginHandler()
 
     def load_proxies(self):
         proxies = []
@@ -71,53 +93,18 @@ class Control(commands.Cog):
         return proxies
 
     async def fetch_user_data(self, fid, proxy=None):
-        url = 'https://wos-giftcode-api.centurygame.com/api/player'
-        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-        current_time = int(time.time() * 1000)
-        form = f"fid={fid}&time={current_time}"
-        sign = hashlib.md5((form + SECRET).encode('utf-8')).hexdigest()
-        form = f"sign={sign}&{form}"
-
-        try:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            
-            timeout = aiohttp.ClientTimeout(total=30, connect=10)
-            connector_kwargs = {
-                'ssl': ssl_context,
-                'limit': 10,
-                'limit_per_host': 5,
-                'enable_cleanup_closed': True
-            }
-            
-            if proxy:
-                connector = ProxyConnector.from_url(proxy, **connector_kwargs)
-            else:
-                connector = aiohttp.TCPConnector(**connector_kwargs)
-                
-            async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
-                async with session.post(url, headers=headers, data=form) as response:
-                    if response.status == 200:
-                        return await response.json()
-                    else:
-                        return response.status
-        except Exception as e:
+        """Fetch user data using the centralized login handler"""
+        result = await self.login_handler.fetch_player_data(fid, use_proxy=proxy)
+        
+        if result['status'] == 'success':
+            # Return in the old format for compatibility
+            return {'data': result['data']}
+        elif result['status'] == 'rate_limited':
+            return 429
+        else:
             return None
 
-    async def process_user(self, fid, old_nickname, old_furnace_lv, old_stove_lv_content, old_kid, proxies):
-        data = await self.fetch_user_data(fid)
-        if data and data != 429:
-            return data
-
-        for proxy in proxies:
-            data = await self.fetch_user_data(fid, proxy=proxy)
-            if data and data != 429:
-                return data
-
-        return None
-
-    async def check_agslist(self, channel, alliance_id):
+    async def check_agslist(self, channel, alliance_id, interaction=None):
         async with self.db_lock:
             self.cursor_users.execute("SELECT fid, nickname, furnace_lv, stove_lv_content, kid FROM users WHERE alliance = ?", (alliance_id,))
             users = self.cursor_users.fetchall()
@@ -132,7 +119,7 @@ class Control(commands.Cog):
         alliance_name = self.cursor_alliance.fetchone()[0]
 
         start_time = datetime.now()
-        print(f"{Fore.CYAN}{alliance_name} Alliance Control started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
+        self.logger.info(f"{alliance_name} Alliance Control started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         
         async with self.db_lock:
             with sqlite3.connect('db/settings.sqlite') as settings_db:
@@ -175,13 +162,16 @@ class Control(commands.Cog):
             for fid, old_nickname, old_furnace_lv, old_stove_lv_content, old_kid in batch_users:
                 data = await self.fetch_user_data(fid)
                 
-                if data == 429 and (not os.path.exists('proxy.txt') or not self.proxies):
-                    embed.description = f"⚠️ API Rate Limit! Waiting 60 seconds...\n📊 Progress: {checked_users}/{total_users} members"
+                if data == 429:
+                    # Get wait time from login handler
+                    wait_time = self.login_handler._get_wait_time()
+                    
+                    embed.description = f"⚠️ API Rate Limit! Waiting {wait_time:.1f} seconds...\n📊 Progress: {checked_users}/{total_users} members"
                     embed.color = discord.Color.orange()
                     if message:
                         await message.edit(embed=embed)
                     
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(wait_time)
                     
                     embed.description = "🔍 Checking for changes in member status..."
                     embed.color = discord.Color.blue()
@@ -301,8 +291,8 @@ class Control(commands.Cog):
 
         if message:
             await message.edit(embed=embed)
-        print(f"{Fore.GREEN}{alliance_name} Alliance Control completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}{Style.RESET_ALL}")
-        print(f"{Fore.YELLOW}{alliance_name} Alliance Total Duration: {duration}{Style.RESET_ALL}")
+        self.logger.info(f"{alliance_name} Alliance Control completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        self.logger.info(f"{alliance_name} Alliance Total Duration: {duration}")
 
     async def send_embed(self, channel, title, description, color, footer):
         if isinstance(description, str):
@@ -337,63 +327,6 @@ class Control(commands.Cog):
             embed.set_footer(text=footer)
             await channel.send(embed=embed)
 
-    async def process_control_queue(self):
-        print("[CONTROL] Queue processor started")
-        while True:
-            try:
-                control_task = await self.control_queue.get()
-                channel = control_task['channel']
-                alliance_id = control_task['alliance_id']
-                is_manual = control_task.get('is_manual', False)
-                
-                print(f"[CONTROL] Processing alliance ID: {alliance_id} (Manual: {is_manual})")
-                
-                if self.current_control:
-                    await self.current_control
-                
-                print(f"[CONTROL] Starting control for alliance ID: {alliance_id}")
-                
-                self.cursor_alliance.execute("""
-                    SELECT name FROM alliance_list 
-                    WHERE alliance_id = ?
-                """, (alliance_id,))
-                alliance_name = self.cursor_alliance.fetchone()[0]
-                
-                self.cursor_users.execute("SELECT COUNT(*) FROM users WHERE alliance = ?", (alliance_id,))
-                member_count = self.cursor_users.fetchone()[0]
-                
-                self.current_control = asyncio.create_task(self.check_agslist(channel, alliance_id))
-                await self.current_control
-                
-                self.current_control = None
-                self.control_queue.task_done()
-                
-                print(f"[CONTROL] Completed control for alliance ID: {alliance_id}")
-                
-                if not is_manual:
-                    await asyncio.sleep(60)
-                
-            except Exception as e:
-                print(f"[ERROR] Error in process_control_queue: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                
-                error_embed = discord.Embed(
-                    title="⚠️ Control Process Error",
-                    description=f"An error occurred during the control process:\n```{str(e)}```",
-                    color=discord.Color.red()
-                )
-                try:
-                    if channel is not None: # Check if channel exists before trying to send
-                        await channel.send(embed=error_embed)
-                    else:
-                        print(f"[ERROR] Cannot send error message - no channel for alliance {alliance_id}")
-                except:
-                    pass
-                
-                if not is_manual:
-                    await asyncio.sleep(60)
-
     async def schedule_alliance_check(self, channel, alliance_id, current_interval):
         try:
             await asyncio.sleep(current_interval * 60)
@@ -422,8 +355,10 @@ class Control(commands.Cog):
                             )
                             break
 
-                    await self.control_queue.put({
-                        'channel': channel,
+                    await self.login_handler.queue_operation({
+                        'type': 'alliance_control',
+                        'callback': lambda ch=channel, aid=alliance_id: self.check_agslist(ch, aid),
+                        'description': f'Control check for alliance {alliance_id}',
                         'alliance_id': alliance_id
                     })
                     
@@ -440,12 +375,19 @@ class Control(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         if not self.monitor_started:
-            print("[CONTROL] Starting monitor and queue processor...")
-            self._queue_processor_task = asyncio.create_task(self.process_control_queue())
+            print("[CONTROL] Starting monitor...")
+            
+            # Check API availability
+            await self.login_handler.check_apis_availability()
+            print(f"[CONTROL] {self.login_handler.get_mode_text()}")
+            
+            # Start the centralized queue processor
+            await self.login_handler.start_queue_processor()
+            
             self.monitor_alliance_changes.start()
             await self.start_alliance_checks()
             self.monitor_started = True
-            print("[CONTROL] Monitor and queue processor started successfully")
+            self.logger.info("Monitor and queue processor started successfully")
 
     async def start_alliance_checks(self):
         try:
@@ -472,18 +414,15 @@ class Control(commands.Cog):
                 for alliance_id, channel_id, interval in alliances:
                     channel = self.bot.get_channel(channel_id)
                     if channel is not None:
-                        print(f"[CONTROL] Starting initial check for alliance {alliance_id}")
-                        await self.control_queue.put({
-                            'channel': channel,
-                            'alliance_id': alliance_id
-                        })
+                        print(f"[CONTROL] Scheduling alliance {alliance_id} with interval {interval} minutes")
                         
+                        # Don't queue an immediate check - let the schedule handle it
                         self.is_running[alliance_id] = True
                         self.alliance_tasks[alliance_id] = asyncio.create_task(
                             self.schedule_alliance_check(channel, alliance_id, interval)
                         )
                         
-                        await asyncio.sleep(2)
+                        await asyncio.sleep(0.5)  # Small delay to prevent overwhelming the system
                     else:
                         print(f"[CONTROL] Channel not found for alliance {alliance_id}")
 
