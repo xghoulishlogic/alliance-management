@@ -1469,7 +1469,7 @@ class AddMemberModal(discord.ui.Modal):
             )
 
 class AllianceSelectView(discord.ui.View):
-    def __init__(self, alliances_with_counts, cog=None, page=0):
+    def __init__(self, alliances_with_counts, cog=None, page=0, context="transfer"):
         super().__init__(timeout=7200)
         self.alliances = alliances_with_counts
         self.cog = cog
@@ -1479,6 +1479,7 @@ class AllianceSelectView(discord.ui.View):
         self.callback = None
         self.member_dict = {}
         self.selected_alliance_id = None
+        self.context = context  # "transfer", "furnace_history", or "nickname_history"
         self.update_select_menu()
 
     def update_select_menu(self):
@@ -1538,7 +1539,9 @@ class AllianceSelectView(discord.ui.View):
             modal = FIDSearchModal(
                 selected_alliance_id=self.selected_alliance_id,
                 alliances=self.alliances,
-                callback=self.callback
+                callback=self.callback,
+                context=self.context,
+                cog=self.cog
             )
             await interaction.response.send_modal(modal)
         except Exception as e:
@@ -1549,11 +1552,13 @@ class AllianceSelectView(discord.ui.View):
             )
 
 class FIDSearchModal(discord.ui.Modal):
-    def __init__(self, selected_alliance_id=None, alliances=None, callback=None):
+    def __init__(self, selected_alliance_id=None, alliances=None, callback=None, context="transfer", cog=None):
         super().__init__(title="Search Members with FID")
         self.selected_alliance_id = selected_alliance_id
         self.alliances = alliances
         self.callback = callback
+        self.context = context
+        self.cog = cog
         
         self.add_item(discord.ui.TextInput(
             label="Member ID",
@@ -1567,7 +1572,24 @@ class FIDSearchModal(discord.ui.Modal):
         try:
             fid = self.children[0].value.strip()
             
+            # Check if we're in a history context
+            if self.context in ["furnace_history", "nickname_history"]:
+                # Get the Changes cog
+                changes_cog = self.cog.bot.get_cog("Changes") if self.cog else interaction.client.get_cog("Changes")
+                if changes_cog:
+                    await interaction.response.defer()
+                    if self.context == "furnace_history":
+                        await changes_cog.show_furnace_history(interaction, int(fid))
+                    else:
+                        await changes_cog.show_nickname_history(interaction, int(fid))
+                else:
+                    await interaction.response.send_message(
+                        "❌ History feature is not available.",
+                        ephemeral=True
+                    )
+                return
             
+            # Original transfer logic
             with sqlite3.connect('db/users.sqlite') as users_db:
                 cursor = users_db.cursor()
                 cursor.execute("""
@@ -1774,7 +1796,9 @@ class MemberSelectView(discord.ui.View):
             modal = FIDSearchModal(
                 selected_alliance_id=self.selected_alliance_id,
                 alliances=self.alliances,
-                callback=self.callback
+                callback=self.callback,
+                context=self.context,
+                cog=self.cog
             )
             await interaction.response.send_modal(modal)
         except Exception as e:

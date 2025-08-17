@@ -463,7 +463,7 @@ class HistoryView(discord.ui.View):
                 color=discord.Color.blue()
             )
 
-            view = AllianceSelectView(alliances_with_counts, self.cog)
+            view = AllianceSelectView(alliances_with_counts, self.cog, page=0, context="furnace_history")
 
             async def alliance_callback(select_interaction: discord.Interaction):
                 try:
@@ -612,7 +612,7 @@ class HistoryView(discord.ui.View):
                 color=discord.Color.blue()
             )
 
-            view = AllianceSelectView(alliances_with_counts, self.cog)
+            view = AllianceSelectView(alliances_with_counts, self.cog, page=0, context="nickname_history")
 
             async def alliance_callback(select_interaction: discord.Interaction):
                 try:
@@ -895,7 +895,7 @@ class MemberListView(discord.ui.View):
         await self.update_page(interaction)
 
     async def search_callback(self, interaction: discord.Interaction):
-        modal = FIDSearchModal(self.cog)
+        modal = FurnaceHistoryFIDSearchModal(self.cog)
         await interaction.response.send_modal(modal)
 
     async def update_page(self, interaction: discord.Interaction):
@@ -915,7 +915,7 @@ class MemberListView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-class FIDSearchModal(discord.ui.Modal, title="Search by FID"):
+class FurnaceHistoryFIDSearchModal(discord.ui.Modal, title="Search by FID"):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
@@ -940,7 +940,7 @@ class FIDSearchModal(discord.ui.Modal, title="Search by FID"):
                 ephemeral=True
             )
         except Exception as e:
-            print(f"Error in FIDSearchModal on_submit: {e}")
+            print(f"Error in FurnaceHistoryFIDSearchModal on_submit: {e}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "❌ An error occurred while searching for the player.",
@@ -1121,7 +1121,7 @@ class MemberListViewNickname(discord.ui.View):
         await self.update_page(interaction)
 
     async def search_callback(self, interaction: discord.Interaction):
-        modal = FIDSearchModalNickname(self.cog)
+        modal = NicknameHistoryFIDSearchModal(self.cog)
         await interaction.response.send_modal(modal)
 
     async def update_page(self, interaction: discord.Interaction):
@@ -1141,7 +1141,7 @@ class MemberListViewNickname(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-class FIDSearchModalNickname(discord.ui.Modal, title="Search by FID"):
+class NicknameHistoryFIDSearchModal(discord.ui.Modal, title="Search by FID"):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
@@ -1166,7 +1166,7 @@ class FIDSearchModalNickname(discord.ui.Modal, title="Search by FID"):
                 ephemeral=True
             )
         except Exception as e:
-            print(f"Error in FIDSearchModalNickname on_submit: {e}")
+            print(f"Error in NicknameHistoryFIDSearchModal on_submit: {e}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "❌ An error occurred while searching for the player.",
