@@ -88,6 +88,21 @@ except ImportError:
         print("Please install requests manually: pip install requests")
         sys.exit(1)
 
+def calculate_file_hash(filepath):
+    """Calculate SHA256 hash of a file."""
+    import hashlib
+    if not os.path.exists(filepath):
+        return None
+    
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(filepath, "rb") as f:
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+    except Exception:
+        return None
+
 # Configuration for multiple update sources
 UPDATE_SOURCES = [
     {
@@ -104,25 +119,40 @@ UPDATE_SOURCES = [
     # Can add more sources here as needed
 ]
 
-def get_latest_release_info():
+def get_latest_release_info(beta_mode=False):
     """Try to get latest release info from multiple sources."""
     for source in UPDATE_SOURCES:
         try:
             print(f"Checking for updates from {source['name']}...")
             
             if source['name'] == "GitHub":
-                response = requests.get(source['api_url'], timeout=30)
-                if response.status_code == 200:
-                    data = response.json()
-                    # Use GitHub's automatic source archive
+                if beta_mode:
+                    # Get latest commit from main branch
                     repo_name = source['api_url'].split('/repos/')[1].split('/releases')[0]
-                    download_url = f"https://github.com/{repo_name}/archive/refs/tags/{data['tag_name']}.zip"
-                    return {
-                        "tag_name": data["tag_name"],
-                        "body": data["body"],
-                        "download_url": download_url,
-                        "source": source['name']
-                    }
+                    branch_url = f"https://api.github.com/repos/{repo_name}/branches/main"
+                    response = requests.get(branch_url, timeout=30)
+                    if response.status_code == 200:
+                        data = response.json()
+                        commit_sha = data['commit']['sha'][:7]  # Short SHA
+                        return {
+                            "tag_name": f"beta-{commit_sha}",
+                            "body": f"Latest development version from main branch (commit: {commit_sha})",
+                            "download_url": f"https://github.com/{repo_name}/archive/refs/heads/main.zip",
+                            "source": f"{source['name']} (Beta)"
+                        }
+                else:
+                    response = requests.get(source['api_url'], timeout=30)
+                    if response.status_code == 200:
+                        data = response.json()
+                        # Use GitHub's automatic source archive
+                        repo_name = source['api_url'].split('/repos/')[1].split('/releases')[0]
+                        download_url = f"https://github.com/{repo_name}/archive/refs/tags/{data['tag_name']}.zip"
+                        return {
+                            "tag_name": data["tag_name"],
+                            "body": data["body"],
+                            "download_url": download_url,
+                            "source": source['name']
+                        }
                     
             elif source['name'] == "GitLab":
                 response = requests.get(source['api_url'], timeout=30)
@@ -461,18 +491,25 @@ if __name__ == "__main__":
             return False
     
     async def check_and_update_files():
-        release_info = get_latest_release_info()
+        beta_mode = "--beta" in sys.argv
+        release_info = get_latest_release_info(beta_mode=beta_mode)
         
         if release_info:
             latest_tag = release_info["tag_name"]
             source_name = release_info["source"]
             
-            if os.path.exists("version"):
+            # For beta mode, always show as update available
+            if beta_mode:
+                print(Fore.YELLOW + f"Beta mode: Pulling latest from main branch" + Style.RESET_ALL)
+                current_version = "beta-mode"  # Force update in beta mode
+            elif os.path.exists("version"):
                 with open("version", "r") as f:
                     current_version = f.read().strip()
             else:
                 current_version = "v0.0.0"
-            print(Fore.CYAN + f"Current version: {current_version}" + Style.RESET_ALL)
+            
+            if not beta_mode:
+                print(Fore.CYAN + f"Current version: {current_version}" + Style.RESET_ALL)
 
             if current_version != latest_tag:
                 print(Fore.YELLOW + f"New version available: {latest_tag} (from {source_name})" + Style.RESET_ALL)
@@ -516,11 +553,30 @@ if __name__ == "__main__":
                         
                     print(Fore.YELLOW + f"Downloading update from {source_name}..." + Style.RESET_ALL)
                     safe_remove("package.zip")
-                    download_resp = requests.get(download_url, timeout=600)
                     
-                    if download_resp.status_code == 200:
-                        with open("package.zip", "wb") as f:
-                            f.write(download_resp.content)
+                    try:
+                        response = requests.get(download_url, stream=True, timeout=30)
+                        response.raise_for_status()
+                        
+                        total_size = int(response.headers.get('content-length', 0))
+                        downloaded = 0
+                        
+                        with open("package.zip", 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                if chunk:
+                                    f.write(chunk)
+                                    downloaded += len(chunk)
+                                    
+                                    # Show progress
+                                    if total_size > 0:
+                                        percent = (downloaded / total_size) * 100
+                                        bar_length = 40
+                                        filled_length = int(bar_length * downloaded // total_size)
+                                        bar = '█' * filled_length + '░' * (bar_length - filled_length)
+                                        print(f'\r{Fore.CYAN}[{bar}] {percent:.1f}% ({downloaded}/{total_size} bytes){Style.RESET_ALL}', end='', flush=True)
+                        
+                        print()  # New line after progress bar
+                        print(Fore.GREEN + "Download completed" + Style.RESET_ALL)
                         
                         if os.path.exists("update") and os.path.isdir("update"):
                             if not safe_remove("update"):
@@ -592,14 +648,33 @@ if __name__ == "__main__":
                                 os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
                                 if os.path.exists(dst_path):
-                                    # Only backup cogs files
-                                    if dst_path.startswith("cogs/") or dst_path.startswith("cogs\\"):
-                                        backup_path = f"{dst_path}.bak"
-                                        safe_remove(backup_path)
-                                        try:
-                                            os.rename(dst_path, backup_path)
-                                        except Exception as e: # Continue anyway to try to update the file
-                                            print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
+                                    norm_path = dst_path.replace("\\", "/")
+                                    if norm_path.startswith("cogs/") or norm_path.startswith("./cogs/"):
+                                        # Calculate file hashes to check if backup is needed
+                                        src_hash = calculate_file_hash(src_path)
+                                        dst_hash = calculate_file_hash(dst_path)
+                                        
+                                        if src_hash != dst_hash:
+                                            # Files are different, create backup
+                                            cogs_bak_dir = "cogs.bak"
+                                            os.makedirs(cogs_bak_dir, exist_ok=True)
+                                            
+                                            # Get relative path within cogs directory
+                                            rel_path_in_cogs = os.path.relpath(dst_path, "cogs")
+                                            backup_path = os.path.join(cogs_bak_dir, rel_path_in_cogs)
+                                            
+                                            # Create subdirectories in backup if needed
+                                            os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                                            
+                                            try:
+                                                # Remove old backup if exists
+                                                if os.path.exists(backup_path):
+                                                    os.remove(backup_path)
+                                                # Copy current file to backup
+                                                shutil.copy2(dst_path, backup_path)
+                                                print(Fore.GREEN + f"Backed up: {dst_path} → {backup_path}" + Style.RESET_ALL)
+                                            except Exception as e:
+                                                print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
                                         
                                 try:
                                     shutil.copy2(src_path, dst_path)
@@ -642,8 +717,8 @@ if __name__ == "__main__":
                             print(Fore.YELLOW + f"Could not check for obsolete packages: {e}" + Style.RESET_ALL)
                         
                         restart_bot()
-                    else:
-                        print(Fore.RED + f"Failed to download the update from {source_name}. HTTP status: {download_resp.status_code}" + Style.RESET_ALL)
+                    except requests.exceptions.RequestException as e:
+                        print(Fore.RED + f"\nFailed to download update: {e}" + Style.RESET_ALL)
                         return  
         else:
             print(Fore.RED + "Failed to fetch latest release info from all sources" + Style.RESET_ALL)
