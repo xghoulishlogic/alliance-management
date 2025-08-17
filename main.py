@@ -371,15 +371,15 @@ except Exception as e:
     print(f"Warning: Error checking for ddddocr: {e}")
 
 v1_path = "V1oldbot"
-if safe_remove(v1_path):
+if os.path.exists(v1_path) and safe_remove(v1_path):
     print(f"Removed directory: {v1_path}")
 
 v2_path = "V2Old"
-if safe_remove(v2_path):
+if os.path.exists(v2_path) and safe_remove(v2_path):
     print(f"Removed directory: {v2_path}")
 
 txt_path = "autoupdateinfo.txt"
-if safe_remove(txt_path):
+if os.path.exists(txt_path) and safe_remove(txt_path):
     print(f"Removed file: {txt_path}")
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
