@@ -592,12 +592,14 @@ if __name__ == "__main__":
                                 os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
                                 if os.path.exists(dst_path):
-                                    backup_path = f"{dst_path}.bak"
-                                    safe_remove(backup_path)
-                                    try:
-                                        os.rename(dst_path, backup_path)
-                                    except Exception as e: # Continue anyway to try to update the file
-                                        print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
+                                    # Only backup cogs files
+                                    if dst_path.startswith("cogs/") or dst_path.startswith("cogs\\"):
+                                        backup_path = f"{dst_path}.bak"
+                                        safe_remove(backup_path)
+                                        try:
+                                            os.rename(dst_path, backup_path)
+                                        except Exception as e: # Continue anyway to try to update the file
+                                            print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
                                         
                                 try:
                                     shutil.copy2(src_path, dst_path)
