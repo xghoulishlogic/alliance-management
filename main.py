@@ -670,68 +670,32 @@ if __name__ == "__main__":
                         
                         print(Fore.GREEN + f"Update completed successfully from {source_name}." + Style.RESET_ALL)
                         
-                        try: # Clean up unnecessary dependencies after update
-                            print(Fore.YELLOW + "Cleaning up dependencies..." + Style.RESET_ALL)
+                        try: # Clean up removed dependencies after update
+                            print(Fore.YELLOW + "Checking for obsolete dependencies..." + Style.RESET_ALL)
+                            try: # Try importlib.metadata approach first
+                                import importlib.metadata
+                                installed_packages = {dist.metadata['Name'].lower(): dist for dist in importlib.metadata.distributions()}
+                            except ImportError:
+                                
+                                try: # Fallback to pkg_resources if importlib.metadata not available
+                                    import pkg_resources
+                                    installed_packages = {pkg.key: pkg for pkg in pkg_resources.working_set}
+                                except ImportError:
+                                    installed_packages = {}
                             
-                            # Get all installed packages using pip freeze
-                            result = subprocess.run([sys.executable, "-m", "pip", "freeze"], 
-                                                  capture_output=True, text=True, timeout=60)
-                            if result.returncode == 0:
-                                installed_packages = set()
-                                for line in result.stdout.strip().split('\n'):
-                                    if line and '==' in line:
-                                        package_name = line.split('==')[0].lower()
-                                        installed_packages.add(package_name)
-                                
-                                # Parse requirements.txt to get required packages
-                                required_packages = set()
-                                if os.path.exists('requirements.txt'):
-                                    with open('requirements.txt', 'r') as f:
-                                        for line in f:
-                                            line = line.strip()
-                                            if line and not line.startswith('#'):
-                                                # Handle different requirement formats
-                                                if '==' in line:
-                                                    package_name = line.split('==')[0].lower()
-                                                elif '>=' in line:
-                                                    package_name = line.split('>=')[0].lower()
-                                                elif '<=' in line:
-                                                    package_name = line.split('<=')[0].lower()
-                                                elif '~=' in line:
-                                                    package_name = line.split('~=')[0].lower()
-                                                elif '!=' in line:
-                                                    package_name = line.split('!=')[0].lower()
-                                                else:
-                                                    package_name = line.lower()
-                                                required_packages.add(package_name)
-                                
-                                # Don't uninstall essential packages
-                                essential_packages = {'pip', 'setuptools', 'wheel'}
-                                
-                                # Find packages to remove
-                                packages_to_remove = installed_packages - required_packages - essential_packages
-                                
-                                if packages_to_remove:
-                                    print(f"Found {len(packages_to_remove)} unnecessary packages to remove")
-                                    for package in packages_to_remove:
-                                        try:
-                                            print(f"Removing {package}...")
-                                            subprocess.check_call(
-                                                [sys.executable, "-m", "pip", "uninstall", package, "-y"],
-                                                timeout=120,
-                                                stdout=subprocess.DEVNULL,
-                                                stderr=subprocess.DEVNULL
-                                            )
-                                            print(Fore.GREEN + f"✓ Removed {package}" + Style.RESET_ALL)
-                                        except Exception as e:
-                                            print(Fore.YELLOW + f"Could not remove {package}: {e}" + Style.RESET_ALL)
-                                else:
-                                    print(Fore.GREEN + "No unnecessary packages found" + Style.RESET_ALL)
-                            else:
-                                print(Fore.YELLOW + "Could not get list of installed packages" + Style.RESET_ALL)
-                                
+                            obsolete_packages = ['ddddocr', 'opencv-python-headless']
+                            
+                            for package in obsolete_packages:
+                                if package in installed_packages:
+                                    print(f"Found obsolete package: {package}")
+                                    try:
+                                        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", package, "-y"], 
+                                                            timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                        print(Fore.GREEN + f"✓ Removed {package}" + Style.RESET_ALL)
+                                    except Exception as e:
+                                        print(Fore.YELLOW + f"Warning: Could not remove {package}: {e}" + Style.RESET_ALL)
                         except Exception as e:
-                            print(Fore.YELLOW + f"Could not clean dependencies: {e}" + Style.RESET_ALL)
+                            print(Fore.YELLOW + f"Could not check for obsolete packages: {e}" + Style.RESET_ALL)
                         
                         restart_bot()
                     else:
