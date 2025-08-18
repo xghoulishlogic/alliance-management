@@ -668,7 +668,6 @@ if __name__ == "__main__":
                                                     os.remove(backup_path)
                                                 # Copy current file to backup
                                                 shutil.copy2(dst_path, backup_path)
-                                                print(Fore.GREEN + f"Backed up: {dst_path} → {backup_path}" + Style.RESET_ALL)
                                             except Exception as e:
                                                 print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
                                         
