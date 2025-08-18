@@ -1,6 +1,8 @@
 import subprocess
 import sys
 import os
+import shutil
+import stat
 
 def is_container() -> bool:
     return os.path.exists("/.dockerenv") or os.path.exists("/var/run/secrets/kubernetes.io")
@@ -87,6 +89,57 @@ except ImportError:
         print(f"Failed to install requests: {e}")
         print("Please install requests manually: pip install requests")
         sys.exit(1)
+
+def remove_readonly(func, path, _):
+    """Clear the readonly bit and reattempt the removal"""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+def safe_remove(path, is_dir=None):
+    """
+    Safely remove a file or directory.
+    
+    Args:
+        path: Path to file or directory to remove
+        is_dir: True for directory, False for file, None to auto-detect
+        
+    Returns:
+        bool: True if successfully removed, False otherwise
+    """
+    if not os.path.exists(path):
+        return True  # Already gone, consider it success
+    
+    # Auto-detect type if not specified
+    if is_dir is None:
+        is_dir = os.path.isdir(path)
+    
+    try:
+        if is_dir:
+            # Directory removal with readonly handler (Windows only)
+            if sys.platform == "win32":
+                shutil.rmtree(path, onexc=remove_readonly)
+            else:
+                shutil.rmtree(path)
+        else:
+            # File removal with readonly bit clearing (Windows only)
+            try:
+                os.remove(path)
+            except PermissionError:
+                if sys.platform == "win32":
+                    # Try clearing readonly bit on Windows
+                    os.chmod(path, stat.S_IWRITE)
+                    os.remove(path)
+                else:
+                    raise  # Re-raise on non-Windows platforms
+        
+        return True
+        
+    except PermissionError:
+        print(f"Warning: Access Denied. Could not remove '{path}'. Check permissions or if {'directory' if is_dir else 'file'} is in use.")
+    except OSError as e:
+        print(f"Warning: Could not remove '{path}': {e}")
+    
+    return False
 
 def calculate_file_hash(filepath):
     """Calculate SHA256 hash of a file."""
@@ -213,15 +266,30 @@ def ensure_requirements_file():
             
             import zipfile
             with zipfile.ZipFile("temp_package.zip", 'r') as zip_ref:
-                if "requirements.txt" in zip_ref.namelist():
-                    zip_ref.extract("requirements.txt", ".")
+                # Look for requirements.txt in the archive (might be in a subdirectory)
+                req_file = None
+                for filename in zip_ref.namelist():
+                    if filename.endswith("requirements.txt"):
+                        req_file = filename
+                        break
+                
+                if req_file:
+                    # Extract to temp location first
+                    zip_ref.extract(req_file, ".")
+                    
+                    # If it's in a subdirectory, move it to the current directory
+                    if "/" in req_file or "\\" in req_file:
+                        shutil.move(req_file, "requirements.txt")
+                        # Clean up the extracted subdirectory
+                        extracted_dir = req_file.split("/")[0] if "/" in req_file else req_file.split("\\")[0]
+                        safe_remove(extracted_dir, is_dir=True)
+                    
                     print("Successfully downloaded requirements.txt")
-                    
                     safe_remove("temp_package.zip")
-                    
                     return True
-            
+                
             safe_remove("temp_package.zip")
+            print("requirements.txt not found in the downloaded archive")
         
         print(f"Failed to download from {release_info['source']}")
         return False
@@ -320,59 +388,6 @@ except ImportError as e:
     sys.exit(1)
 
 import warnings
-import shutil
-import stat
-
-def remove_readonly(func, path, _):
-    """Clear the readonly bit and reattempt the removal"""
-    os.chmod(path, stat.S_IWRITE)
-    func(path)
-
-def safe_remove(path, is_dir=None):
-    """
-    Safely remove a file or directory.
-    
-    Args:
-        path: Path to file or directory to remove
-        is_dir: True for directory, False for file, None to auto-detect
-        
-    Returns:
-        bool: True if successfully removed, False otherwise
-    """
-    if not os.path.exists(path):
-        return True  # Already gone, consider it success
-    
-    # Auto-detect type if not specified
-    if is_dir is None:
-        is_dir = os.path.isdir(path)
-    
-    try:
-        if is_dir:
-            # Directory removal with readonly handler (Windows only)
-            if sys.platform == "win32":
-                shutil.rmtree(path, onexc=remove_readonly)
-            else:
-                shutil.rmtree(path)
-        else:
-            # File removal with readonly bit clearing (Windows only)
-            try:
-                os.remove(path)
-            except PermissionError:
-                if sys.platform == "win32":
-                    # Try clearing readonly bit on Windows
-                    os.chmod(path, stat.S_IWRITE)
-                    os.remove(path)
-                else:
-                    raise  # Re-raise on non-Windows platforms
-        
-        return True
-        
-    except PermissionError:
-        print(f"Warning: Access Denied. Could not remove '{path}'. Check permissions or if {'directory' if is_dir else 'file'} is in use.")
-    except OSError as e:
-        print(f"Warning: Could not remove '{path}': {e}")
-    
-    return False
 
 try: # Clean up old ddddocr dependency if present
     try: # Try importlib.metadata approach first
