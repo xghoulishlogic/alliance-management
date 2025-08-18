@@ -101,8 +101,33 @@ class Control(commands.Cog):
             return {'data': result['data']}
         elif result['status'] == 'rate_limited':
             return 429
+        elif result['status'] == 'not_found':
+            return {'error': 'not_found', 'fid': fid}
         else:
-            return None
+            return {'error': result.get('error_message', 'Unknown error'), 'fid': fid}
+
+    async def remove_invalid_fid(self, fid: str, reason: str):
+        """Safely remove an invalid FID from the database with logging"""
+        try:
+            async with self.db_lock:
+                # Get user info before deletion for logging
+                self.cursor_users.execute("SELECT nickname, alliance FROM users WHERE fid = ?", (fid,))
+                user_info = self.cursor_users.fetchone()
+                
+                if user_info:
+                    nickname, alliance_id = user_info
+                    
+                    # Delete from users table
+                    self.cursor_users.execute("DELETE FROM users WHERE fid = ?", (fid,))
+                    self.conn_users.commit()
+                    
+                    # Log the deletion to alliance control log
+                    self.logger.warning(f"[AUTO-CLEANUP] Removed invalid FID {fid} (nickname: {nickname}) - Reason: {reason}")
+                    
+                    return True, nickname
+        except Exception as e:
+            self.logger.error(f"Failed to remove invalid FID {fid}: {str(e)}")
+            return False, None
 
     async def check_agslist(self, channel, alliance_id, interaction=None):
         async with self.db_lock:
@@ -149,7 +174,7 @@ class Control(commands.Cog):
         if auto_value == 1:
             message = await channel.send(embed=embed)
 
-        furnace_changes, nickname_changes, kid_changes = [], [], []
+        furnace_changes, nickname_changes, kid_changes, check_fail_list = [], [], [], []
 
         def safe_list(input_list): # Avoid issues with list indexing
             if not isinstance(input_list, list):
@@ -180,42 +205,62 @@ class Control(commands.Cog):
                     data = await self.fetch_user_data(fid)
                 
                 if isinstance(data, dict):
-                    user_data = data['data']
-                    new_furnace_lv = user_data['stove_lv']
-                    new_nickname = user_data['nickname'].strip()
-                    new_kid = user_data.get('kid', 0)
-                    new_stove_lv_content = user_data['stove_lv_content']
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    if 'error' in data:
+                        # Handle error responses (including 40004)
+                        error_msg = data.get('error', 'Unknown error')
+                        
+                        # Check if this is a permanently invalid FID (not found)
+                        if error_msg == 'not_found':
+                            # Auto-remove the invalid FID
+                            removed, old_nickname = await self.remove_invalid_fid(fid, "Player does not exist (error 40004)")
+                            if removed:
+                                check_fail_list.append(f"❌ `{fid}` ({old_nickname}) - Player not found (Auto-removed)")
+                            else:
+                                check_fail_list.append(f"❌ `{fid}` - Player not found (Failed to remove)")
+                        else:
+                            # For other errors, just report without removing
+                            check_fail_list.append(f"❌ `{fid}` - {error_msg}")
+                            self.logger.warning(f"Failed to check FID {fid}: {error_msg}")
+                        
+                        checked_users += 1
+                    elif 'data' in data:
+                        # Process successful response
+                        user_data = data['data']
+                        new_furnace_lv = user_data['stove_lv']
+                        new_nickname = user_data['nickname'].strip()
+                        new_kid = user_data.get('kid', 0)
+                        new_stove_lv_content = user_data['stove_lv_content']
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    async with self.db_lock:
-                        if new_stove_lv_content != old_stove_lv_content:
-                            self.cursor_users.execute("UPDATE users SET stove_lv_content = ? WHERE fid = ?", (new_stove_lv_content, fid))
-                            self.conn_users.commit()
+                        async with self.db_lock:
+                            if new_stove_lv_content != old_stove_lv_content:
+                                self.cursor_users.execute("UPDATE users SET stove_lv_content = ? WHERE fid = ?", (new_stove_lv_content, fid))
+                                self.conn_users.commit()
 
-                        if old_kid != new_kid:
-                            kid_changes.append(f"👤 **{old_nickname}** has transferred to a new state\n🔄 Old State: `{old_kid}`\n🆕 New State: `{new_kid}`")
-                            self.cursor_users.execute("UPDATE users SET kid = ? WHERE fid = ?", (new_kid, fid))
-                            self.conn_users.commit()
+                            if old_kid != new_kid:
+                                kid_changes.append(f"👤 **{old_nickname}** has transferred to a new state\n🔄 Old State: `{old_kid}`\n🆕 New State: `{new_kid}`")
+                                self.cursor_users.execute("UPDATE users SET kid = ? WHERE fid = ?", (new_kid, fid))
+                                self.conn_users.commit()
 
-                        if new_furnace_lv != old_furnace_lv:
-                            new_furnace_display = level_mapping.get(new_furnace_lv, new_furnace_lv)
-                            old_furnace_display = level_mapping.get(old_furnace_lv, old_furnace_lv)
-                            self.cursor_changes.execute("INSERT INTO furnace_changes (fid, old_furnace_lv, new_furnace_lv, change_date) VALUES (?, ?, ?, ?)",
-                                                         (fid, old_furnace_lv, new_furnace_lv, current_time))
-                            self.conn_changes.commit()
-                            self.cursor_users.execute("UPDATE users SET furnace_lv = ? WHERE fid = ?", (new_furnace_lv, fid))
-                            self.conn_users.commit()
-                            furnace_changes.append(f"👤 **{old_nickname}**\n🔥 `{old_furnace_display}` ➡️ `{new_furnace_display}`")
+                            if new_furnace_lv != old_furnace_lv:
+                                new_furnace_display = level_mapping.get(new_furnace_lv, new_furnace_lv)
+                                old_furnace_display = level_mapping.get(old_furnace_lv, old_furnace_lv)
+                                self.cursor_changes.execute("INSERT INTO furnace_changes (fid, old_furnace_lv, new_furnace_lv, change_date) VALUES (?, ?, ?, ?)",
+                                                             (fid, old_furnace_lv, new_furnace_lv, current_time))
+                                self.conn_changes.commit()
+                                self.cursor_users.execute("UPDATE users SET furnace_lv = ? WHERE fid = ?", (new_furnace_lv, fid))
+                                self.conn_users.commit()
+                                furnace_changes.append(f"👤 **{old_nickname}**\n🔥 `{old_furnace_display}` ➡️ `{new_furnace_display}`")
 
-                        if new_nickname.lower() != old_nickname.lower().strip():
-                            self.cursor_changes.execute("INSERT INTO nickname_changes (fid, old_nickname, new_nickname, change_date) VALUES (?, ?, ?, ?)",
-                                                         (fid, old_nickname, new_nickname, current_time))
-                            self.conn_changes.commit()
-                            self.cursor_users.execute("UPDATE users SET nickname = ? WHERE fid = ?", (new_nickname, fid))
-                            self.conn_users.commit()
-                            nickname_changes.append(f"📝 `{old_nickname}` ➡️ `{new_nickname}`")
+                            if new_nickname.lower() != old_nickname.lower().strip():
+                                self.cursor_changes.execute("INSERT INTO nickname_changes (fid, old_nickname, new_nickname, change_date) VALUES (?, ?, ?, ?)",
+                                                             (fid, old_nickname, new_nickname, current_time))
+                                self.conn_changes.commit()
+                                self.cursor_users.execute("UPDATE users SET nickname = ? WHERE fid = ?", (new_nickname, fid))
+                                self.conn_users.commit()
+                                nickname_changes.append(f"📝 `{old_nickname}` ➡️ `{new_nickname}`")
 
-                checked_users += 1
+                        checked_users += 1
                 embed.set_field_at(
                     1,
                     name="📈 Progress",
@@ -230,7 +275,7 @@ class Control(commands.Cog):
         end_time = datetime.now()
         duration = end_time - start_time
 
-        if furnace_changes or nickname_changes or kid_changes:
+        if furnace_changes or nickname_changes or kid_changes or check_fail_list:
             if furnace_changes:
                 await self.send_embed(
                     channel=channel,
@@ -258,6 +303,22 @@ class Control(commands.Cog):
                     footer=f"📊 Total Changes: {len(kid_changes)}"
                 )
 
+            if check_fail_list:
+                # Count auto-removed entries
+                auto_removed_count = sum(1 for item in check_fail_list if "Auto-removed" in item)
+                
+                footer_text = f"📊 Total Issues: {len(check_fail_list)}"
+                if auto_removed_count > 0:
+                    footer_text += f" | 🗑️ Auto-removed: {auto_removed_count}"
+                
+                await self.send_embed(
+                    channel=channel,
+                    title=f"❌ **{alliance_name}** Invalid Members Detected",
+                    description=safe_list(check_fail_list),
+                    color=discord.Color.red(),
+                    footer=footer_text
+                )
+
             embed.color = discord.Color.green()
             embed.set_field_at(
                 0,
@@ -272,7 +333,7 @@ class Control(commands.Cog):
             )
             embed.add_field(
                 name="📈 Total Changes",
-                value=f"🔄 {len(furnace_changes) + len(nickname_changes) + len(kid_changes)} changes detected",
+                value=f"🔄 {len(furnace_changes) + len(nickname_changes) + len(kid_changes)} changes detected" + (f"\n🗑️ {sum(1 for item in check_fail_list if 'Auto-removed' in item)} invalid FIDs removed" if any('Auto-removed' in item for item in check_fail_list) else "") + (f"\n❌ {sum(1 for item in check_fail_list if 'Auto-removed' not in item)} check failures" if any('Auto-removed' not in item for item in check_fail_list) else ""),
                 inline=True
             )
         else:

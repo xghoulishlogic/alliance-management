@@ -272,6 +272,7 @@ class LoginHandler:
                     if response.status == 200:
                         data = await response.json()
                         
+                        # Check if we have valid data
                         if data.get('data'):
                             return {
                                 'status': 'success',
@@ -279,12 +280,27 @@ class LoginHandler:
                                 'api_used': api_num,
                                 'error_message': None
                             }
-                        else:
+                        
+                        # Check if this is specifically error 40004 (role not exist)
+                        elif data.get('err_code') == 40004:
                             return {
                                 'status': 'not_found',
                                 'data': None,
                                 'api_used': api_num,
-                                'error_message': 'No data found for this FID'
+                                'error_message': 'Player does not exist (role not exist)',
+                                'err_code': 40004
+                            }
+                        
+                        # Other cases where data is empty but not error 40004
+                        else:
+                            err_code = data.get('err_code', 'unknown')
+                            err_msg = data.get('msg', 'Unknown error')
+                            return {
+                                'status': 'error',
+                                'data': None,
+                                'api_used': api_num,
+                                'error_message': f'API Error {err_code}: {err_msg}',
+                                'err_code': err_code
                             }
                     elif response.status == 429:
                         # This shouldn't happen with our rate limiting, but handle it
