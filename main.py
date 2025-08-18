@@ -160,7 +160,7 @@ def calculate_file_hash(filepath):
 UPDATE_SOURCES = [
     {
         "name": "GitHub",
-        "api_url": "https://api.github.com/repos/whiteout-project/bot-dev/releases/latest",
+        "api_url": "https://api.github.com/repos/whiteout-project/bot/releases/latest",
         "primary": True
     },
     {
