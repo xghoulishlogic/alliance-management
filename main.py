@@ -643,33 +643,36 @@ if __name__ == "__main__":
                                 
                                 os.makedirs(os.path.dirname(dst_path), exist_ok=True)
 
-                                if os.path.exists(dst_path):
-                                    norm_path = dst_path.replace("\\", "/")
-                                    if norm_path.startswith("cogs/") or norm_path.startswith("./cogs/"):
-                                        # Calculate file hashes to check if backup is needed
-                                        src_hash = calculate_file_hash(src_path)
-                                        dst_hash = calculate_file_hash(dst_path)
+                                # Only backup cogs Python files (.py extension)
+                                norm_path = dst_path.replace("\\", "/")
+                                is_cogs_file = (norm_path.startswith("cogs/") or norm_path.startswith("./cogs/")) and file.endswith(".py")
+                                
+                                if is_cogs_file and os.path.exists(dst_path):
+                                    # Calculate file hashes to check if backup is needed
+                                    src_hash = calculate_file_hash(src_path)
+                                    dst_hash = calculate_file_hash(dst_path)
+                                    
+                                    if src_hash != dst_hash:
+                                        # Files are different, create backup
+                                        cogs_bak_dir = "cogs.bak"
+                                        os.makedirs(cogs_bak_dir, exist_ok=True)
                                         
-                                        if src_hash != dst_hash:
-                                            # Files are different, create backup
-                                            cogs_bak_dir = "cogs.bak"
-                                            os.makedirs(cogs_bak_dir, exist_ok=True)
-                                            
-                                            # Get relative path within cogs directory
-                                            rel_path_in_cogs = os.path.relpath(dst_path, "cogs")
-                                            backup_path = os.path.join(cogs_bak_dir, rel_path_in_cogs)
-                                            
-                                            # Create subdirectories in backup if needed
-                                            os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-                                            
-                                            try:
-                                                # Remove old backup if exists
-                                                if os.path.exists(backup_path):
-                                                    os.remove(backup_path)
-                                                # Copy current file to backup
-                                                shutil.copy2(dst_path, backup_path)
-                                            except Exception as e:
-                                                print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
+                                        # Get relative path within cogs directory
+                                        rel_path_in_cogs = os.path.relpath(dst_path, "cogs")
+                                        backup_path = os.path.join(cogs_bak_dir, rel_path_in_cogs)
+                                        
+                                        # Create subdirectories in backup if needed
+                                        os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                                        
+                                        try:
+                                            # Remove old backup if exists
+                                            if os.path.exists(backup_path):
+                                                os.remove(backup_path)
+                                            # Copy current file to backup
+                                            shutil.copy2(dst_path, backup_path)
+                                            print(Fore.YELLOW + f"Backed up: {dst_path}" + Style.RESET_ALL)
+                                        except Exception as e:
+                                            print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
                                         
                                 try:
                                     shutil.copy2(src_path, dst_path)
