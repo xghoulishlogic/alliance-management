@@ -1054,9 +1054,13 @@ class GiftOperations(commands.Cog):
                 self.logger.error(f"[SIGN ERROR] Sign error detected for FID {player_id}, code {giftcode}")
                 self.logger.error(f"[SIGN ERROR] Response: {response_json_redeem}")
             elif msg == "STOVE_LV ERROR." and err_code == 40006:
-                status = "STOVE_LV_ERROR"
-                self.logger.error(f"[STOVE LVL ERROR] Furnace level is too low for FID {player_id}, code {giftcode}")
-                self.logger.error(f"[STOVE LVL ERROR] Response: {response_json_redeem}")
+                status = "TOO_SMALL_SPEND_MORE"
+                self.logger.error(f"[FURNACE LVL ERROR] Furnace level is too low for FID {player_id}, code {giftcode}")
+                self.logger.error(f"[FURNACE LVL ERROR] Response: {response_json_redeem}")
+            elif msg == "RECHARGE_MONEY ERROR." and err_code == 40017:
+                status = "TOO_POOR_SPEND_MORE"
+                self.logger.error(f"[VIP LEVEL ERROR] VIP level is too low for FID {player_id}, code {giftcode}")
+                self.logger.error(f"[VIP LEVEL ERROR] Response: {response_json_redeem}")
             else:
                 status = "UNKNOWN_API_RESPONSE"
                 self.logger.info(f"Unknown API response for {player_id}: msg='{msg}', err_code={err_code}")
@@ -3582,6 +3586,9 @@ class GiftOperations(commands.Cog):
         self.logger.info(f"\nGiftOps: Starting use_giftcode_for_alliance for Alliance {alliance_id}, Code {giftcode}")
 
         try:
+            # Initialize error tracking for summary
+            error_summary = {}
+            
             # Initial Setup (Get channel, alliance name)
             self.alliance_cursor.execute("SELECT channel_id FROM alliancesettings WHERE alliance_id = ?", (alliance_id,))
             channel_result = self.alliance_cursor.fetchone()
@@ -3597,6 +3604,26 @@ class GiftOperations(commands.Cog):
 
             if not channel:
                 self.logger.error(f"GiftOps: Bot cannot access channel {channel_id} for alliance {alliance_name}.")
+                return False
+
+            # Check if OCR is enabled
+            self.settings_cursor.execute("SELECT enabled FROM ocr_settings ORDER BY id DESC LIMIT 1")
+            ocr_settings_row = self.settings_cursor.fetchone()
+            ocr_enabled = ocr_settings_row[0] if ocr_settings_row else 0
+            
+            if not (ocr_enabled == 1 and self.captcha_solver):
+                error_embed = discord.Embed(
+                    title="❌ OCR/Captcha Solver Disabled",
+                    description=(
+                        f"**Gift Code:** `{giftcode}`\n"
+                        f"**Alliance:** `{alliance_name}`\n\n"
+                        f"⚠️ Gift code redemption requires the OCR/captcha solver to be enabled.\n"
+                        f"Please enable it first using the settings command."
+                    ),
+                    color=discord.Color.red()
+                )
+                await channel.send(embed=error_embed)
+                self.logger.info(f"GiftOps: Skipping alliance {alliance_id} - OCR disabled or solver not ready")
                 return False
 
             # Check if this code has been validated before
@@ -3837,14 +3864,37 @@ class GiftOperations(commands.Cog):
                     already_used_users.append(nickname)
                     batch_results.append((fid, giftcode, response_status))
                     mark_processed = True
-                elif response_status in ["LOGIN_FAILED", "LOGIN_EXPIRED_MID_PROCESS", "ERROR", "UNKNOWN_API_RESPONSE", "OCR_DISABLED", "SOLVER_ERROR", "CAPTCHA_FETCH_ERROR"]:
+                elif response_status == "OCR_DISABLED":
+                    add_to_failed = True
+                    mark_processed = True
+                    fail_reason = "OCR Disabled"
+                    error_summary["OCR_DISABLED"] = error_summary.get("OCR_DISABLED", 0) + 1
+                elif response_status in ["SOLVER_ERROR", "CAPTCHA_FETCH_ERROR"]:
+                    add_to_failed = True
+                    mark_processed = True
+                    fail_reason = f"Solver Error ({response_status})"
+                    error_summary["CAPTCHA_SOLVER_ERROR"] = error_summary.get("CAPTCHA_SOLVER_ERROR", 0) + 1
+                elif response_status in ["LOGIN_FAILED", "LOGIN_EXPIRED_MID_PROCESS", "ERROR", "UNKNOWN_API_RESPONSE"]:
                     add_to_failed = True
                     mark_processed = True
                     fail_reason = f"Processing Error ({response_status})"
+                    error_summary[response_status] = error_summary.get(response_status, 0) + 1
                 elif response_status == "TIMEOUT_RETRY":
                     queue_for_retry = True
                     retry_delay = API_RATE_LIMIT_COOLDOWN
                     fail_reason = "API Rate Limited"
+                    if current_cycle_count + 1 >= MAX_RETRY_CYCLES: # Track as error if this is the final attempt
+                        error_summary["TIMEOUT_RETRY"] = error_summary.get("TIMEOUT_RETRY", 0) + 1
+                elif response_status == "TOO_POOR_SPEND_MORE":
+                    add_to_failed = True
+                    mark_processed = True
+                    fail_reason = "VIP level too low"
+                    error_summary["TOO_POOR_SPEND_MORE"] = error_summary.get("TOO_POOR_SPEND_MORE", 0) + 1
+                elif response_status == "TOO_SMALL_SPEND_MORE":
+                    add_to_failed = True
+                    mark_processed = True
+                    fail_reason = "Furnace level too low"
+                    error_summary["TOO_SMALL_SPEND_MORE"] = error_summary.get("TOO_SMALL_SPEND_MORE", 0) + 1
                 elif response_status in ["CAPTCHA_INVALID", "MAX_CAPTCHA_ATTEMPTS_REACHED", "OCR_FAILED_ATTEMPT"]:
                     if current_cycle_count + 1 < MAX_RETRY_CYCLES:
                         queue_for_retry = True
@@ -3856,10 +3906,16 @@ class GiftOperations(commands.Cog):
                         mark_processed = True
                         fail_reason = f"Failed after {MAX_RETRY_CYCLES} captcha cycles (Last Status: {response_status})"
                         self.logger.info(f"GiftOps: Max ({MAX_RETRY_CYCLES}) retry cycles reached for FID {fid}. Marking as failed.")
+                        # Track based on error type
+                        if response_status in ["CAPTCHA_INVALID", "MAX_CAPTCHA_ATTEMPTS_REACHED"]:
+                            error_summary["CAPTCHA_SOLVING_FAILED"] = error_summary.get("CAPTCHA_SOLVING_FAILED", 0) + 1
+                        else:  # OCR_FAILED_ATTEMPT
+                            error_summary["CAPTCHA_SOLVER_ERROR"] = error_summary.get("CAPTCHA_SOLVER_ERROR", 0) + 1
                 else:
                     add_to_failed = True
                     mark_processed = True
                     fail_reason = f"Unhandled status: {response_status}"
+                    error_summary[response_status] = error_summary.get(response_status, 0) + 1
 
                 # Update State Based on Outcome
                 if mark_processed:
@@ -3965,6 +4021,48 @@ class GiftOperations(commands.Cog):
             if batch_results:
                 self.batch_process_alliance_results(batch_results)
                 batch_results = []
+            
+            # Send error summary if there were any errors (excluding successful redemptions)
+            non_success_errors = {k: v for k, v in error_summary.items() if k != "SUCCESS"}
+            if non_success_errors and channel:
+                error_embed = discord.Embed(
+                    title="⚠️ Redemption Error Summary",
+                    color=discord.Color.orange(),
+                    timestamp=datetime.now()
+                )
+                
+                error_messages = []
+                
+                # Define user-friendly messages for each error type
+                error_descriptions = {
+                    "TOO_POOR_SPEND_MORE": "💸 **{count}** members failed to spend enough to reach VIP12.",
+                    "TOO_NOOB_GIT_GUD": "🔥 **{count}** members failed due to insufficient furnace level.",
+                    "TIMEOUT_RETRY": "⏱️ **{count}** members were staring into the void, until the void finally timed out on them.",
+                    "LOGIN_EXPIRED_MID_PROCESS": "🔒 **{count}** members login failed mid-process. How'd that even happen?",
+                    "LOGIN_FAILED": "🔐 **{count}** members failed due to login issues. Try logging it off and on again!",
+                    "CAPTCHA_SOLVING_FAILED": "🤖 **{count}** members lost the battle against CAPTCHA. You sure those weren't just bots?",
+                    "CAPTCHA_SOLVER_ERROR": "🔧 **{count}** members failed due to captcha solver technical issues. We're still trying to solve that one.",
+                    "OCR_DISABLED": "🚫 **{count}** members failed since OCR is disabled. Try turning it on first!",
+                    "SIGN_ERROR": "🔐 **{count}** members failed due to a signature error. Something went wrong.",
+                    "ERROR": "❌ **{count}** members failed due to a general error. Might want to check the logs.",
+                    "UNKNOWN_API_RESPONSE": "❓ **{count}** members failed with an unknown API response. Say what?"
+                }
+                
+                # Build message for each error type
+                for error_type, count in sorted(non_success_errors.items(), key=lambda x: x[1], reverse=True):
+                    if error_type in error_descriptions:
+                        error_messages.append(error_descriptions[error_type].format(count=count))
+                    else:
+                        # Handle any unexpected error types
+                        error_messages.append(f"❗ **{count}** members failed with status: {error_type}")
+                
+                error_embed.description = "\n".join(error_messages)
+                error_embed.set_footer(text=f"Gift Code: {giftcode} | Total Errors: {sum(non_success_errors.values())}")
+                
+                try:
+                    await channel.send(embed=error_embed)
+                except Exception as e:
+                    self.logger.error(f"Failed to send error summary: {e}")
             
             return True
         
