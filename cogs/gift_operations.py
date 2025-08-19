@@ -4026,7 +4026,7 @@ class GiftOperations(commands.Cog):
             non_success_errors = {k: v for k, v in error_summary.items() if k != "SUCCESS"}
             if non_success_errors and channel:
                 error_embed = discord.Embed(
-                    title="⚠️ Redemption Error Summary",
+                    title=f"⚠️ {alliance_name} Redemption Error Summary",
                     color=discord.Color.orange(),
                     timestamp=datetime.now()
                 )
