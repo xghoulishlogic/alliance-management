@@ -302,16 +302,22 @@ class GiftCodeAPI:
                                                         self.logger.exception(f"Error sending notification to admin {admin_id[0]}: {e}")
 
                                             if auto_alliances:
-                                                for alliance in auto_alliances:
-                                                    try:
-                                                        gift_operations = self.bot.get_cog('GiftOperations')
-                                                        if gift_operations:
-                                                            self.logger.info(f"Auto-distributing code {code} to alliance {alliance[0]}")
-                                                            await gift_operations.use_giftcode_for_alliance(alliance[0], code)
-                                                        else:
-                                                            self.logger.error("GiftOperations cog not found!")
-                                                    except Exception as e:
-                                                        self.logger.exception(f"Error auto-distributing code {code} to alliance {alliance[0]}: {e}")
+                                                gift_operations = self.bot.get_cog('GiftOperations')
+                                                if gift_operations:
+                                                    self.logger.info(f"Queueing auto-distribution for code {code} to {len(auto_alliances)} alliances")
+                                                    for alliance in auto_alliances:
+                                                        try:  # Use the queue system
+                                                            await gift_operations.add_to_validation_queue(
+                                                                giftcode=code,
+                                                                source='api-auto',
+                                                                operation_type='redemption',
+                                                                alliance_id=alliance[0],
+                                                                interaction=None
+                                                            )
+                                                        except Exception as e:
+                                                            self.logger.exception(f"Error queueing auto-distribution for code {code} to alliance {alliance[0]}: {e}")
+                                                else:
+                                                    self.logger.error("GiftOperations cog not found!")
                                         except Exception as e:
                                             self.logger.exception(f"Error processing new code {code}: {e}")
                             except Exception as e:

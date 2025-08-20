@@ -233,7 +233,7 @@ class GiftOperations(commands.Cog):
         cleaned = ''.join(char for char in giftcode if unicodedata.category(char)[0] != 'C')
         return cleaned.strip()
     
-    async def add_to_validation_queue(self, giftcode, source, message=None, channel=None):
+    async def add_to_validation_queue(self, giftcode, source, message=None, channel=None, operation_type='automatic', alliance_id=None, interaction=None):
         """Add a gift code to the validation queue for processing."""
         async with self.validation_queue_lock:
             queue_item = {
@@ -242,10 +242,13 @@ class GiftOperations(commands.Cog):
                 'message': message,
                 'channel': channel,
                 'timestamp': datetime.now(),
-                'status': 'queued'
+                'status': 'queued',
+                'operation_type': operation_type,
+                'alliance_id': alliance_id,
+                'interaction': interaction
             }
             self.validation_queue.append(queue_item)
-            self.logger.info(f"Added gift code '{giftcode}' to validation queue (source: {source}, queue length: {len(self.validation_queue)})")
+            self.logger.info(f"Added gift code '{giftcode}' to validation queue (source: {source}, type: {operation_type}, queue length: {len(self.validation_queue)})")
             
             # Start queue processing if not already running
             if not self.validation_queue_task or self.validation_queue_task.done():
@@ -278,10 +281,65 @@ class GiftOperations(commands.Cog):
         """Process a single queue item."""
         giftcode = queue_item['giftcode']
         source = queue_item['source']
-        message = queue_item['message']
-        channel = queue_item['channel']
+        message = queue_item.get('message')
+        channel = queue_item.get('channel')
+        operation_type = queue_item.get('operation_type', 'automatic')
+        alliance_id = queue_item.get('alliance_id')
+        interaction = queue_item.get('interaction')
         
-        self.logger.info(f"Processing gift code '{giftcode}' from queue (source: {source})")
+        self.logger.info(f"Processing gift code '{giftcode}' from queue (source: {source}, type: {operation_type})")
+        
+        # Handle redemption
+        if operation_type == 'redemption':
+            if alliance_id:
+                try:
+                    # Get alliance name
+                    self.alliance_cursor.execute("SELECT name FROM alliance_list WHERE alliance_id = ?", (alliance_id,))
+                    alliance_result = self.alliance_cursor.fetchone()
+                    alliance_name = alliance_result[0] if alliance_result else f"Alliance {alliance_id}"
+                    
+                    # Send starting message only if interaction exists
+                    progress_message = None
+                    if interaction:
+                        start_embed = discord.Embed(
+                            title="🔄 Processing Redemption",
+                            description=f"Starting gift code redemption for **{alliance_name}**...\n"
+                                       f"**Gift Code:** `{giftcode}`",
+                            color=discord.Color.blue()
+                        )
+                        progress_message = await interaction.followup.send(embed=start_embed, ephemeral=True)
+                    
+                    # Execute the redemption
+                    await self.use_giftcode_for_alliance(alliance_id, giftcode)
+                    
+                    # Update the message with completion status if we have a message to update
+                    if interaction and progress_message:
+                        complete_embed = discord.Embed(
+                            title="✅ Redemption Complete",
+                            description=f"Gift code redemption completed for **{alliance_name}**.\n"
+                                       f"**Gift Code:** `{giftcode}`",
+                            color=discord.Color.green()
+                        )
+                        try:
+                            await progress_message.edit(embed=complete_embed)
+                        except: # If edit fails, just skip it
+                            pass
+                except Exception as e:
+                    self.logger.exception(f"Error in manual redemption for alliance {alliance_id}: {e}")
+                    if interaction:
+                        error_embed = discord.Embed(
+                            title="❌ Redemption Error",
+                            description=f"An error occurred during redemption for **{alliance_name}**: {str(e)}",
+                            color=discord.Color.red()
+                        )
+                        if progress_message:
+                            try:
+                                await progress_message.edit(embed=error_embed)
+                            except: # If edit fails, send a new message
+                                await interaction.followup.send(embed=error_embed, ephemeral=True)
+                        else:
+                            await interaction.followup.send(embed=error_embed, ephemeral=True)
+            return
         
         # Check if code already exists
         self.cursor.execute("SELECT 1 FROM gift_codes WHERE giftcode = ?", (giftcode,))
@@ -380,18 +438,56 @@ class GiftOperations(commands.Cog):
         auto_alliances = self.cursor.fetchall()
         
         if auto_alliances:
-            self.logger.info(f"Triggering auto-use for {len(auto_alliances)} alliances for code '{giftcode}'")
+            self.logger.info(f"Queueing auto-use for {len(auto_alliances)} alliances for code '{giftcode}'")
             for alliance in auto_alliances:
-                await self.use_giftcode_for_alliance(alliance[0], giftcode)
+                # Add to queue instead of direct execution
+                await self.add_to_validation_queue(
+                    giftcode=giftcode,
+                    source='auto',
+                    operation_type='redemption',
+                    alliance_id=alliance[0],
+                    interaction=None  # No interaction for auto-use
+                )
     
     async def get_queue_status(self):
         """Get current queue status."""
         async with self.validation_queue_lock:
+            # Group queue items by gift code
+            queue_by_code = {}
+            for idx, item in enumerate(self.validation_queue):
+                code = item['giftcode']
+                if code not in queue_by_code:
+                    queue_by_code[code] = []
+                queue_by_code[code].append({
+                    'position': idx + 1,
+                    'alliance_id': item.get('alliance_id'),
+                    'source': item.get('source')
+                })
+            
             return {
                 'queue_length': len(self.validation_queue),
                 'processing': self.validation_in_progress,
-                'items': [{'giftcode': item['giftcode'], 'source': item['source']} for item in self.validation_queue]
+                'items': [{'giftcode': item['giftcode'], 'source': item['source']} for item in self.validation_queue],
+                'queue_by_code': queue_by_code
             }
+    
+    async def add_manual_redemption_to_queue(self, giftcode, alliance_ids, interaction):
+        """Add manual redemption requests to validation queue."""
+        queue_positions = []
+        
+        for alliance_id in alliance_ids:
+            await self.add_to_validation_queue(
+                giftcode=giftcode,
+                source='manual',
+                operation_type='redemption',
+                alliance_id=alliance_id,
+                interaction=interaction
+            )
+            
+            queue_status = await self.get_queue_status()
+            queue_positions.append(queue_status['queue_length'])
+        
+        return queue_positions
     
     @commands.Cog.listener()
     async def on_ready(self):
@@ -752,7 +848,7 @@ class GiftOperations(commands.Cog):
             status = await self.claim_giftcode_rewards_wos(validation_fid, giftcode)
             
             # Handle validation results
-            if status in ["SUCCESS", "RECEIVED", "SAME TYPE EXCHANGE"]:
+            if status in ["SUCCESS", "RECEIVED", "SAME TYPE EXCHANGE", "TOO_SMALL_SPEND_MORE", "TOO_POOR_SPEND_MORE"]:
                 # Valid code - mark as validated
                 self.cursor.execute("""
                     INSERT OR REPLACE INTO gift_codes (giftcode, date, validation_status) 
@@ -760,8 +856,15 @@ class GiftOperations(commands.Cog):
                 """, (giftcode,))
                 self.conn.commit()
                 
-                self.logger.info(f"Gift code '{giftcode}' validated successfully using {fid_source} FID")
-                return True, f"Code validated successfully ({status})"
+                # These statuses mean the code is valid but has requirements
+                if status in ["TOO_SMALL_SPEND_MORE", "TOO_POOR_SPEND_MORE"]:
+                    validation_msg = f"Code validated (has requirements)"
+                    self.logger.info(f"Gift code '{giftcode}' is valid but has requirements: {status}")
+                else:
+                    validation_msg = f"Code validated successfully ({status})"
+                    self.logger.info(f"Gift code '{giftcode}' validated successfully using {fid_source} FID")
+                
+                return True, validation_msg
                 
             elif status in ["TIME_ERROR", "CDK_NOT_FOUND", "USAGE_LIMIT"]:
                 # Invalid code - mark as invalid
@@ -1014,21 +1117,24 @@ class GiftOperations(commands.Cog):
             msg = response_json_redeem.get("msg", "Unknown Error").strip('.')
             err_code = response_json_redeem.get("err_code")
             
-            # Handle response status
-            is_captcha_error = (msg == "CAPTCHA CHECK ERROR" and err_code == 40103)
-            is_captcha_rate_limit = (msg == "CAPTCHA CHECK TOO FREQUENT" and err_code == 40101)
+            # Consolidate all captcha errors
+            captcha_errors = {
+                ("CAPTCHA CHECK ERROR", 40103),
+                ("CAPTCHA GET TOO FREQUENT", 40100),
+                ("CAPTCHA CHECK TOO FREQUENT", 40101),
+                ("CAPTCHA EXPIRED", 40102)
+            }
+            
+            is_captcha_error = (msg, err_code) in captcha_errors
             
             if is_captcha_error:
                 self.processing_stats["server_validation_failure"] += 1
                 if attempt == max_ocr_attempts - 1:
                     return "CAPTCHA_INVALID", image_bytes, captcha_code, method
                 else:
-                    self.logger.info(f"GiftOps: CAPTCHA_INVALID for FID {player_id} on attempt {attempt + 1}. Retrying...")
+                    self.logger.info(f"GiftOps: CAPTCHA_INVALID for FID {player_id} on attempt {attempt + 1} (msg: {msg}). Retrying...")
                     await asyncio.sleep(random.uniform(1.5, 2.5))
                     continue
-            elif is_captcha_rate_limit:
-                self.logger.info(f"GiftOps: API returned CAPTCHA_TOO_FREQUENT during redemption for FID {player_id}")
-                return "CAPTCHA_TOO_FREQUENT", image_bytes, captcha_code, method
             else:
                 self.processing_stats["server_validation_success"] += 1
             
@@ -1594,7 +1700,7 @@ class GiftOperations(commands.Cog):
                                 except Exception as e:
                                     self.logger.exception(f"Error notifying admin {admin_id}: {e}")
                         
-                        elif status in ["SUCCESS", "RECEIVED", "SAME TYPE EXCHANGE"]: # Code is still valid
+                        elif status in ["SUCCESS", "RECEIVED", "SAME TYPE EXCHANGE", "TOO_SMALL_SPEND_MORE", "TOO_POOR_SPEND_MORE"]:
                             codes_still_valid += 1
                             
                             # Update to validated if it was pending
@@ -1947,7 +2053,7 @@ class GiftOperations(commands.Cog):
                         except Exception as e:
                             self.logger.exception(f"Error sending message to admin {admin_id}: {str(e)}")
                 
-                elif status in ["SUCCESS", "RECEIVED", "SAME TYPE EXCHANGE"] and current_db_status == 'pending':
+                elif status in ["SUCCESS", "RECEIVED", "SAME TYPE EXCHANGE", "TOO_SMALL_SPEND_MORE", "TOO_POOR_SPEND_MORE"] and current_db_status == 'pending':
                     self.logger.info(f"[validate_gift_codes] Code {giftcode} confirmed valid. Updating status to 'validated'.")
                     self.cursor.execute("UPDATE gift_codes SET validation_status = 'validated' WHERE giftcode = ? AND validation_status = 'pending'", (giftcode,))
                     self.conn.commit()
@@ -4472,74 +4578,62 @@ class GiftView(discord.ui.View):
                             
                             async def confirm_callback(button_interaction: discord.Interaction):
                                 try:
-                                    await button_interaction.response.edit_message(
-                                        content="Gift code redemption is starting.",
-                                        embed=None,
-                                        view=None
+                                    await self.cog.add_manual_redemption_to_queue(
+                                        selected_code, all_alliances, button_interaction
                                     )
-
-                                    progress_embed = discord.Embed(
-                                        title="🎁 Gift Code Distribution Progress",
-                                        description=(
-                                            f"**Overall Progress**\n"
-                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                                            f"🎁 **Gift Code:** `{selected_code}`\n"
-                                            f"🏰 **Total Alliances:** `{len(all_alliances)}`\n"
-                                            f"⏳ **Current Alliance:** `Starting...`\n"
-                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                                        ),
-                                        color=discord.Color.blue()
-                                    )
-
-                                    channel = button_interaction.channel
-                                    progress_msg = await channel.send(embed=progress_embed)
-                                    completed = 0
-
-                                    for aid in all_alliances:
-                                        alliance_name = next((name for a_id, name, _ in alliances_with_counts if a_id == aid), 'Unknown')
-                                        
-                                        progress_embed.description = (
-                                            f"**Overall Progress**\n"
-                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                                            f"🎁 **Gift Code:** `{selected_code}`\n"
-                                            f"🏰 **Total Alliances:** `{len(all_alliances)}`\n"
-                                            f"⏳ **Current Alliance:** `{alliance_name}`\n"
-                                            f"📊 **Progress:** `{completed}/{len(all_alliances)}`\n"
-                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                                        )
-                                        try:
-                                            await progress_msg.edit(embed=progress_embed)
-                                        except Exception as e:
-                                            print(f"Could not update progress embed: {e}")
-                                        
-                                        result = await self.cog.use_giftcode_for_alliance(aid, selected_code)
-                                        if result:
-                                            completed += 1
-                                        
-                                        await asyncio.sleep(5)
                                     
-                                    final_embed = discord.Embed(
-                                        title="✅ Gift Code Distribution Complete",
+                                    queue_status = await self.cog.get_queue_status()
+                                    
+                                    alliance_names = []
+                                    for aid in all_alliances[:3]:  # Show first 3 alliance names
+                                        name = next((n for a_id, n, _ in alliances_with_counts if a_id == aid), 'Unknown')
+                                        alliance_names.append(name)
+                                    
+                                    alliance_list = ", ".join(alliance_names)
+                                    if len(all_alliances) > 3:
+                                        alliance_list += f" and {len(all_alliances) - 3} more"
+                                    
+                                    queue_summary = []
+                                    your_position = None
+                                    
+                                    for code, items in queue_status['queue_by_code'].items():
+                                        alliance_count = len([i for i in items if i.get('alliance_id')])
+                                        
+                                        if code == selected_code and your_position is None:
+                                            your_position = min(i['position'] for i in items)
+                                        
+                                        queue_summary.append(f"• `{code}` - {alliance_count} alliance{'s' if alliance_count != 1 else ''}")
+                                    
+                                    queue_info = "\n".join(queue_summary) if queue_summary else "Queue is empty"
+                                    
+                                    queue_embed = discord.Embed(
+                                        title="✅ Redemptions Queued Successfully",
                                         description=(
-                                            f"**Final Status**\n"
+                                            f"Gift code redemptions added to the queue.\n\n"
+                                            f"**Your Redemption**\n"
                                             f"━━━━━━━━━━━━━━━━━━━━━━\n"
                                             f"🎁 **Gift Code:** `{selected_code}`\n"
-                                            f"🏰 **Total Alliances:** `{len(all_alliances)}`\n"
-                                            f"✅ **Completed:** `{completed}/{len(all_alliances)}`\n"
-                                            f"⏰ **Time:** <t:{int(datetime.now().timestamp())}:R>\n"
-                                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                                            f"🏰 **Alliances:** {alliance_list}\n"
+                                            f"━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                                            f"**Full Queue Details**\n"
+                                            f"{queue_info}\n\n"
+                                            f"📊 **Total items in queue:** {queue_status['queue_length']}\n"
+                                            f"📍 **Your position:** #{your_position if your_position else 'Processing'}\n\n"
+                                            f"💡 You'll receive notifications as each alliance is processed."
                                         ),
                                         color=discord.Color.green()
                                     )
-                                    try:
-                                        await progress_msg.edit(embed=final_embed)
-                                    except Exception as e:
-                                        print(f"Could not update final embed: {e}")
+                                    queue_embed.set_footer(text="Gift codes are processed sequentially to prevent issues.")
+                                    
+                                    await button_interaction.response.edit_message(
+                                        embed=queue_embed,
+                                        view=None
+                                    )
 
                                 except Exception as e:
-                                    self.logger.exception(f"Error using gift code: {e}")
-                                    await button_interaction.followup.send(
-                                        "❌ An error occurred while using the gift code.",
+                                    self.logger.exception(f"Error queueing gift code redemptions: {e}")
+                                    await button_interaction.response.send_message(
+                                        "❌ An error occurred while queueing the gift code redemptions.",
                                         ephemeral=True
                                     )
 
