@@ -4051,10 +4051,13 @@ class GiftOperations(commands.Cog):
                 # Build message for each error type
                 for error_type, count in sorted(non_success_errors.items(), key=lambda x: x[1], reverse=True):
                     if error_type in error_descriptions:
-                        error_messages.append(error_descriptions[error_type].format(count=count))
+                        desc = error_descriptions[error_type]
+                        emoji = desc.split()[0]
+                        rest = ' '.join(desc.split()[1:])
+                        error_messages.append(f"{emoji} {error_type}: {rest.format(count=count)}")
                     else:
                         # Handle any unexpected error types
-                        error_messages.append(f"❗ **{count}** members failed with status: {error_type}")
+                        error_messages.append(f"❗ {error_type}: **{count}** members failed with unknown status")
                 
                 error_embed.description = "\n".join(error_messages)
                 error_embed.set_footer(text=f"Gift Code: {giftcode} | Total Errors: {sum(non_success_errors.values())}")
