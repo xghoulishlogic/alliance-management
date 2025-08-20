@@ -3825,8 +3825,8 @@ class GiftOperations(commands.Cog):
 
             # Progress Embed
             embed = discord.Embed(title=f"🎁 Gift Code Redemption: {giftcode}", color=discord.Color.blue())
-            def update_embed_description():
-                return (
+            def update_embed_description(include_errors=False):
+                base_description = (
                     f"**Status for Alliance:** `{alliance_name}`\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"👥 **Total Members:** `{total_members}`\n"
@@ -3837,6 +3837,36 @@ class GiftOperations(commands.Cog):
                     f"⏳ **Processed:** `{processed_count}/{total_members}`\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 )
+                
+                if include_errors and failed_count > 0:
+                    non_success_errors = {k: v for k, v in error_summary.items() if k != "SUCCESS"}
+                    if non_success_errors:
+                        # Define user-friendly messages for each error type
+                        error_descriptions = {
+                            "TOO_POOR_SPEND_MORE": "💸 **{count}** members failed to spend enough to reach VIP12.",
+                            "TOO_SMALL_SPEND_MORE": "🔥 **{count}** members failed due to insufficient furnace level.",
+                            "TIMEOUT_RETRY": "⏱️ **{count}** members were staring into the void, until the void finally timed out on them.",
+                            "LOGIN_EXPIRED_MID_PROCESS": "🔒 **{count}** members login failed mid-process. How'd that even happen?",
+                            "LOGIN_FAILED": "🔐 **{count}** members failed due to login issues. Try logging it off and on again!",
+                            "CAPTCHA_SOLVING_FAILED": "🤖 **{count}** members lost the battle against CAPTCHA. You sure those weren't just bots?",
+                            "CAPTCHA_SOLVER_ERROR": "🔧 **{count}** members failed due to a CAPTCHA solver issue. We're still trying to solve that one.",
+                            "OCR_DISABLED": "🚫 **{count}** members failed since OCR is disabled. Try turning it on first!",
+                            "SIGN_ERROR": "🔐 **{count}** members failed due to a signature error. Something went wrong.",
+                            "ERROR": "❌ **{count}** members failed due to a general error. Might want to check the logs.",
+                            "UNKNOWN_API_RESPONSE": "❓ **{count}** members failed with an unknown API response. Say what?"
+                        }
+                        
+                        base_description += "\n**Error Breakdown:**\n"
+                        
+                        # Build message for each error type
+                        for error_type, count in sorted(non_success_errors.items(), key=lambda x: x[1], reverse=True):
+                            if error_type in error_descriptions:
+                                base_description += error_descriptions[error_type].format(count=count) + "\n"
+                            else:
+                                # Handle any unexpected error types
+                                base_description += f"❗ **{count}** members failed with status: {error_type}\n"
+                
+                return base_description
             embed.description = update_embed_description()
             try: status_message = await channel.send(embed=embed)
             except Exception as e: self.logger.exception(f"GiftOps: Error sending initial status embed: {e}"); return False
@@ -4064,7 +4094,7 @@ class GiftOperations(commands.Cog):
 
                 embed.title = final_title
                 embed.color = final_color
-                embed.description = update_embed_description()
+                embed.description = update_embed_description(include_errors=True)
 
                 try:
                     await status_message.edit(embed=embed)
@@ -4127,51 +4157,6 @@ class GiftOperations(commands.Cog):
             if batch_results:
                 self.batch_process_alliance_results(batch_results)
                 batch_results = []
-            
-            # Send error summary if there were any errors (excluding successful redemptions)
-            non_success_errors = {k: v for k, v in error_summary.items() if k != "SUCCESS"}
-            if non_success_errors and channel:
-                error_embed = discord.Embed(
-                    title=f"⚠️ {alliance_name} Redemption Error Summary",
-                    color=discord.Color.orange(),
-                    timestamp=datetime.now()
-                )
-                
-                error_messages = []
-                
-                # Define user-friendly messages for each error type
-                error_descriptions = {
-                    "TOO_POOR_SPEND_MORE": "💸 **{count}** members failed to spend enough to reach VIP12.",
-                    "TOO_SMALL_SPEND_MORE": "🔥 **{count}** members failed due to insufficient furnace level.",
-                    "TIMEOUT_RETRY": "⏱️ **{count}** members were staring into the void, until the void finally timed out on them.",
-                    "LOGIN_EXPIRED_MID_PROCESS": "🔒 **{count}** members login failed mid-process. How'd that even happen?",
-                    "LOGIN_FAILED": "🔐 **{count}** members failed due to login issues. Try logging it off and on again!",
-                    "CAPTCHA_SOLVING_FAILED": "🤖 **{count}** members lost the battle against CAPTCHA. You sure those weren't just bots?",
-                    "CAPTCHA_SOLVER_ERROR": "🔧 **{count}** members failed due to a CAPTCHA solver issue. We're still trying to solve that one.",
-                    "OCR_DISABLED": "🚫 **{count}** members failed since OCR is disabled. Try turning it on first!",
-                    "SIGN_ERROR": "🔐 **{count}** members failed due to a signature error. Something went wrong.",
-                    "ERROR": "❌ **{count}** members failed due to a general error. Might want to check the logs.",
-                    "UNKNOWN_API_RESPONSE": "❓ **{count}** members failed with an unknown API response. Say what?"
-                }
-                
-                # Build message for each error type
-                for error_type, count in sorted(non_success_errors.items(), key=lambda x: x[1], reverse=True):
-                    if error_type in error_descriptions:
-                        desc = error_descriptions[error_type]
-                        emoji = desc.split()[0]
-                        rest = ' '.join(desc.split()[1:])
-                        error_messages.append(f"{emoji} {error_type}: {rest.format(count=count)}")
-                    else:
-                        # Handle any unexpected error types
-                        error_messages.append(f"❗ {error_type}: **{count}** members failed with unknown status")
-                
-                error_embed.description = "\n".join(error_messages)
-                error_embed.set_footer(text=f"Gift Code: {giftcode} | Total Errors: {sum(non_success_errors.values())}")
-                
-                try:
-                    await channel.send(embed=error_embed)
-                except Exception as e:
-                    self.logger.error(f"Failed to send error summary: {e}")
             
             return True
         
