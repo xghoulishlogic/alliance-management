@@ -526,6 +526,10 @@ v2_path = "V2Old"
 if os.path.exists(v2_path) and safe_remove(v2_path):
     print(f"Removed directory: {v2_path}")
 
+pictures_path = "pictures"
+if os.path.exists(pictures_path) and safe_remove(pictures_path):
+    print(f"Removed directory: {pictures_path}")
+
 txt_path = "autoupdateinfo.txt"
 if os.path.exists(txt_path) and safe_remove(txt_path):
     print(f"Removed file: {txt_path}")
