@@ -183,21 +183,21 @@ def get_removed_packages():
         
         return list(old_packages - new_packages)
     except Exception as e:
-        print(Fore.YELLOW + f"Error comparing requirements: {e}" + Style.RESET_ALL)
+        print(F.YELLOW + f"Error comparing requirements: {e}" + R)
         return []
 
 def cleanup_removed_packages():
     """Uninstall packages that were removed from requirements"""
     # If no requirements.old exists, this might be an upgrade from legacy version
     if not os.path.exists("requirements.old"):
-        print(Fore.YELLOW + "No requirements.old found - checking for legacy packages..." + Style.RESET_ALL)
+        print(F.YELLOW + "No requirements.old found - checking for legacy packages..." + R)
         cleanup_legacy_packages()
         return
     
     removed = get_removed_packages()
     
     if removed:
-        print(Fore.YELLOW + f"Found {len(removed)} packages removed from requirements: {', '.join(removed)}" + Style.RESET_ALL)
+        print(F.YELLOW + f"Found {len(removed)} packages removed from requirements: {', '.join(removed)}" + R)
         
         debug_mode = "--verbose" in sys.argv or "--debug" in sys.argv
         
@@ -209,11 +209,11 @@ def cleanup_removed_packages():
                     subprocess.check_call(cmd, timeout=300)
                 else:
                     subprocess.check_call(cmd, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print(Fore.GREEN + f"✓ Removed {package}" + Style.RESET_ALL)
+                print(F.GREEN + f"✓ Removed {package}" + R)
             except subprocess.CalledProcessError:
-                print(Fore.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + Style.RESET_ALL)
+                print(F.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + R)
             except Exception as e:
-                print(Fore.YELLOW + f"✗ Error removing {package}: {e}" + Style.RESET_ALL)
+                print(F.YELLOW + f"✗ Error removing {package}: {e}" + R)
     
     try:
         if os.path.exists("requirements.old"):
@@ -247,14 +247,14 @@ def is_package_installed(package_name):
 
 def cleanup_legacy_packages():
     """Remove known obsolete packages from older bot versions"""
-    print(Fore.YELLOW + "Checking for legacy packages to remove..." + Style.RESET_ALL)
+    print(F.YELLOW + "Checking for legacy packages to remove..." + R)
     
     debug_mode = "--verbose" in sys.argv or "--debug" in sys.argv
     removed_count = 0
     
     for package in LEGACY_PACKAGES_TO_REMOVE:
         if is_package_installed(package):
-            print(Fore.YELLOW + f"Found legacy package: {package}" + Style.RESET_ALL)
+            print(F.YELLOW + f"Found legacy package: {package}" + R)
             try:
                 cmd = [sys.executable, "-m", "pip", "uninstall", "-y", package]
                 
@@ -263,17 +263,17 @@ def cleanup_legacy_packages():
                 else:
                     subprocess.check_call(cmd, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     
-                print(Fore.GREEN + f"✓ Removed legacy package: {package}" + Style.RESET_ALL)
+                print(F.GREEN + f"✓ Removed legacy package: {package}" + R)
                 removed_count += 1
             except subprocess.CalledProcessError:
-                print(Fore.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + Style.RESET_ALL)
+                print(F.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + R)
             except Exception as e:
-                print(Fore.YELLOW + f"✗ Error removing {package}: {e}" + Style.RESET_ALL)
+                print(F.YELLOW + f"✗ Error removing {package}: {e}" + R)
     
     if removed_count > 0:
-        print(Fore.GREEN + f"Removed {removed_count} legacy package(s)" + Style.RESET_ALL)
+        print(F.GREEN + f"Removed {removed_count} legacy package(s)" + R)
     else:
-        print(Fore.GREEN + "No legacy packages found to remove" + Style.RESET_ALL)
+        print(F.GREEN + "No legacy packages found to remove" + R)
     
     return removed_count
 
@@ -508,6 +508,10 @@ except ImportError as e:
     print("Please restart the script or install dependencies manually")
     sys.exit(1)
 
+# Colorama shortcuts
+F = Fore
+R = Style.RESET_ALL
+
 import warnings
 
 v1_path = "V1oldbot"
@@ -539,20 +543,20 @@ try:
        original_create_default_https_context is ssl.create_default_context:
         ssl._create_default_https_context = _create_ssl_context_with_certifi
         
-        print(Fore.GREEN + "Applied SSL context patch using certifi for default HTTPS connections." + Style.RESET_ALL)
+        print(F.GREEN + "Applied SSL context patch using certifi for default HTTPS connections." + R)
     else: # Assume if it's already patched, it's for a good reason, just log it.
-        print(Fore.YELLOW + "SSL default HTTPS context seems to be already modified. Skipping certifi patch." + Style.RESET_ALL)
+        print(F.YELLOW + "SSL default HTTPS context seems to be already modified. Skipping certifi patch." + R)
 except ImportError:
-    print(Fore.RED + "Certifi library not found. SSL certificate verification might fail until it's installed." + Style.RESET_ALL)
+    print(F.RED + "Certifi library not found. SSL certificate verification might fail until it's installed." + R)
 except Exception as e:
-    print(Fore.RED + f"Error applying SSL context patch: {e}" + Style.RESET_ALL)
+    print(F.RED + f"Error applying SSL context patch: {e}" + R)
 
 if __name__ == "__main__":
     import requests
 
     # Check for mutually exclusive flags
     if "--autoupdate" in sys.argv and "--no-update" in sys.argv:
-        print(Fore.RED + "Error: --autoupdate and --no-update flags are mutually exclusive." + Style.RESET_ALL)
+        print(F.RED + "Error: --autoupdate and --no-update flags are mutually exclusive." + R)
         print("Use --autoupdate to automatically install updates without prompting.")
         print("Use --no-update to skip all update checks.")
         sys.exit(1)
@@ -566,17 +570,17 @@ if __name__ == "__main__":
 
         if sys.platform == "win32":
             # For Windows, provide direct venv command like initial setup
-            print(Fore.GREEN + "Update completed successfully!" + Style.RESET_ALL)
-            print(Fore.YELLOW + "Please restart the bot manually to continue:" + Style.RESET_ALL)
-            print(Fore.CYAN + f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}" + Style.RESET_ALL)
+            print(F.GREEN + "Update completed successfully!" + R)
+            print(F.YELLOW + "Please restart the bot manually to continue:" + R)
+            print(F.CYAN + f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}" + R)
             
             venv_path = "bot_venv"
             venv_python_name = os.path.join(venv_path, "Scripts", "python.exe")
-            print(Fore.CYAN + f"  2. Run: {venv_python_name} {os.path.basename(script_path)}" + Style.RESET_ALL)
+            print(F.CYAN + f"  2. Run: {venv_python_name} {os.path.basename(script_path)}" + R)
             sys.exit(0)
         else:
             # For non-Windows, try automatic restart
-            print(Fore.YELLOW + "Restarting bot..." + Style.RESET_ALL)
+            print(F.YELLOW + "Restarting bot..." + R)
             try:
                 subprocess.Popen(args)
                 os._exit(0)
@@ -610,7 +614,7 @@ if __name__ == "__main__":
             
             # For beta mode, always show as update available
             if beta_mode:
-                print(Fore.YELLOW + f"Beta mode: Pulling latest from main branch" + Style.RESET_ALL)
+                print(F.YELLOW + f"Beta mode: Pulling latest from main branch" + R)
                 current_version = "beta-mode"  # Force update in beta mode
             elif os.path.exists("version"):
                 with open("version", "r") as f:
@@ -619,10 +623,10 @@ if __name__ == "__main__":
                 current_version = "v0.0.0"
             
             if not beta_mode:
-                print(Fore.CYAN + f"Current version: {current_version}" + Style.RESET_ALL)
+                print(F.CYAN + f"Current version: {current_version}" + R)
 
             if current_version != latest_tag:
-                print(Fore.YELLOW + f"New version available: {latest_tag} (from {source_name})" + Style.RESET_ALL)
+                print(F.YELLOW + f"New version available: {latest_tag} (from {source_name})" + R)
                 print("Update Notes:")
                 print(release_info["body"])
                 print()
@@ -637,7 +641,7 @@ if __name__ == "__main__":
                         ask = input("Do you want to update? (y/n): ").strip().lower()
                         update = ask == "y"
                 else:
-                    print(Fore.YELLOW + "Running in a container. Skipping update prompt." + Style.RESET_ALL)
+                    print(F.YELLOW + "Running in a container. Skipping update prompt." + R)
                     update = True
                     
                 if update:
@@ -646,29 +650,29 @@ if __name__ == "__main__":
                         try:
                             shutil.copy2("requirements.txt", "requirements.old")
                         except Exception as e:
-                            print(Fore.YELLOW + f"Could not backup requirements.txt: {e}" + Style.RESET_ALL)
+                            print(F.YELLOW + f"Could not backup requirements.txt: {e}" + R)
                     
                     if os.path.exists("db") and os.path.isdir("db"):
-                        print(Fore.YELLOW + "Making backup of database..." + Style.RESET_ALL)
+                        print(F.YELLOW + "Making backup of database..." + R)
                         
                         db_bak_path = "db.bak"
                         if os.path.exists(db_bak_path) and os.path.isdir(db_bak_path):
                             if not safe_remove(db_bak_path): # Create a timestamped backup to avoid upgrading without first having a backup
                                 db_bak_path = f"db.bak_{int(datetime.now().timestamp())}"
-                                print(Fore.YELLOW + f"WARNING: Couldn't remove db.bak folder: {e}. Making backup with timestamp instead." + Style.RESET_ALL)
+                                print(F.YELLOW + f"WARNING: Couldn't remove db.bak folder: {e}. Making backup with timestamp instead." + R)
 
                         try:
                             shutil.copytree("db", db_bak_path)
-                            print(Fore.GREEN + f"Backup completed: db → {db_bak_path}" + Style.RESET_ALL)
+                            print(F.GREEN + f"Backup completed: db → {db_bak_path}" + R)
                         except Exception as e:
-                            print(Fore.RED + f"WARNING: Failed to create database backup: {e}" + Style.RESET_ALL)
+                            print(F.RED + f"WARNING: Failed to create database backup: {e}" + R)
                                             
                     download_url = release_info["download_url"]
                     if not download_url:
-                        print(Fore.RED + "No download URL available for this release" + Style.RESET_ALL)
+                        print(F.RED + "No download URL available for this release" + R)
                         return
                         
-                    print(Fore.YELLOW + f"Downloading update from {source_name}..." + Style.RESET_ALL)
+                    print(F.YELLOW + f"Downloading update from {source_name}..." + R)
                     safe_remove("package.zip")
                     download_resp = requests.get(download_url, timeout=600)
                     
@@ -678,13 +682,13 @@ if __name__ == "__main__":
                         
                         if os.path.exists("update") and os.path.isdir("update"):
                             if not safe_remove("update"):
-                                print(Fore.RED + "WARNING: Could not remove previous update directory" + Style.RESET_ALL)
+                                print(F.RED + "WARNING: Could not remove previous update directory" + R)
                                 return
                             
                         try:
                             shutil.unpack_archive("package.zip", "update", "zip")
                         except Exception as e:
-                            print(Fore.RED + f"ERROR: Failed to extract update package: {e}" + Style.RESET_ALL)
+                            print(F.RED + f"ERROR: Failed to extract update package: {e}" + R)
                             return
                             
                         safe_remove("package.zip")
@@ -704,41 +708,41 @@ if __name__ == "__main__":
                                 if os.path.exists("main.py"):
                                     os.rename("main.py", "main.py.bak")
                             except Exception as e:
-                                print(Fore.YELLOW + f"Could not backup main.py: {e}" + Style.RESET_ALL)
+                                print(F.YELLOW + f"Could not backup main.py: {e}" + R)
                                 # If backup fails, just remove the current file
                                 if safe_remove("main.py"):
-                                    print(Fore.YELLOW + "Removed current main.py" + Style.RESET_ALL)
+                                    print(F.YELLOW + "Removed current main.py" + R)
                                 else:
-                                    print(Fore.RED + "Warning: Could not backup or remove current main.py" + Style.RESET_ALL)
+                                    print(F.RED + "Warning: Could not backup or remove current main.py" + R)
                             
                             try:
                                 shutil.copy2(main_py_path, "main.py")
                             except Exception as e:
-                                print(Fore.RED + f"ERROR: Could not install new main.py: {e}" + Style.RESET_ALL)
+                                print(F.RED + f"ERROR: Could not install new main.py: {e}" + R)
                                 return
                             
                         requirements_path = os.path.join(update_dir, "requirements.txt")
                         if os.path.exists(requirements_path):                      
-                            print(Fore.YELLOW + "Installing any new requirements..." + Style.RESET_ALL)
+                            print(F.YELLOW + "Installing any new requirements..." + R)
                             
                             success = install_packages(requirements_path, debug="--verbose" in sys.argv or "--debug" in sys.argv)
                             
                             if success:
-                                print(Fore.GREEN + "New requirements installed." + Style.RESET_ALL)
+                                print(F.GREEN + "New requirements installed." + R)
                                 
                                 # Copy new requirements.txt to working directory before cleanup
                                 try:
                                     if os.path.exists("requirements.txt"):
                                         os.remove("requirements.txt")
                                     shutil.copy2(requirements_path, "requirements.txt")
-                                    print(Fore.GREEN + "Updated requirements.txt" + Style.RESET_ALL)
+                                    print(F.GREEN + "Updated requirements.txt" + R)
                                 except Exception as e:
-                                    print(Fore.YELLOW + f"Warning: Could not update requirements.txt: {e}" + Style.RESET_ALL)
+                                    print(F.YELLOW + f"Warning: Could not update requirements.txt: {e}" + R)
                                 
                                 # Now cleanup removed packages (comparing old vs new)
                                 cleanup_removed_packages()
                             else:
-                                print(Fore.RED + "Failed to install requirements." + Style.RESET_ALL)
+                                print(F.RED + "Failed to install requirements." + R)
                                 return
                             
                             # Remove the requirements.txt from update folder after copying
@@ -786,35 +790,35 @@ if __name__ == "__main__":
                                                 os.remove(backup_path)
                                             # Copy current file to backup
                                             shutil.copy2(dst_path, backup_path)
-                                            print(Fore.YELLOW + f"Backed up: {dst_path}" + Style.RESET_ALL)
+                                            print(F.YELLOW + f"Backed up: {dst_path}" + R)
                                         except Exception as e:
-                                            print(Fore.YELLOW + f"Could not create backup of {dst_path}: {e}" + Style.RESET_ALL)
+                                            print(F.YELLOW + f"Could not create backup of {dst_path}: {e}" + R)
                                         
                                 try:
                                     shutil.copy2(src_path, dst_path)
                                 except Exception as e:
-                                    print(Fore.RED + f"Failed to copy {file} to {dst_path}: {e}" + Style.RESET_ALL)
+                                    print(F.RED + f"Failed to copy {file} to {dst_path}: {e}" + R)
                         
                         if not safe_remove("update"):
-                            print(Fore.RED + "WARNING: update folder could not be removed. You may want to remove it manually." + Style.RESET_ALL)
+                            print(F.RED + "WARNING: update folder could not be removed. You may want to remove it manually." + R)
                         
                         with open("version", "w") as f:
                             f.write(latest_tag)
                         
-                        print(Fore.GREEN + f"Update completed successfully from {source_name}." + Style.RESET_ALL)
+                        print(F.GREEN + f"Update completed successfully from {source_name}." + R)
                         
                         restart_bot()
                     else:
-                        print(Fore.RED + f"Failed to download the update from {source_name}. HTTP status: {download_resp.status_code}" + Style.RESET_ALL)
+                        print(F.RED + f"Failed to download the update from {source_name}. HTTP status: {download_resp.status_code}" + R)
                         return  
         else:
-            print(Fore.RED + "Failed to fetch latest release info from all sources" + Style.RESET_ALL)
+            print(F.RED + "Failed to fetch latest release info from all sources" + R)
         
     import asyncio
     from datetime import datetime
             
     if "--no-update" in sys.argv:
-        print(Fore.YELLOW + "Update check skipped due to --no-update flag." + Style.RESET_ALL)
+        print(F.YELLOW + "Update check skipped due to --no-update flag." + R)
     else:
         asyncio.run(check_and_update_files())
             
@@ -855,7 +859,7 @@ if __name__ == "__main__":
     if not os.path.exists("db"):
         os.makedirs("db")
         
-        print(Fore.GREEN + "db folder created" + Style.RESET_ALL)
+        print(F.GREEN + "db folder created" + R)
 
     databases = {
         "conn_alliance": "db/alliance.sqlite",
@@ -867,7 +871,7 @@ if __name__ == "__main__":
 
     connections = {name: sqlite3.connect(path) for name, path in databases.items()}
 
-    print(Fore.GREEN + "Database connections have been successfully established." + Style.RESET_ALL)
+    print(F.GREEN + "Database connections have been successfully established." + R)
 
     def create_tables():
         with connections["conn_changes"] as conn_changes:
@@ -935,7 +939,7 @@ if __name__ == "__main__":
                 name TEXT
             )""")
 
-        print(Fore.GREEN + "All tables checked." + Style.RESET_ALL)
+        print(F.GREEN + "All tables checked." + R)
 
     create_tables()
 
@@ -952,17 +956,17 @@ if __name__ == "__main__":
                 failed_cogs.append(cog)
         
         if failed_cogs:
-            print(Fore.RED + f"\n⚠️  {len(failed_cogs)} cog(s) failed to load:" + Style.RESET_ALL)
+            print(F.RED + f"\n⚠️  {len(failed_cogs)} cog(s) failed to load:" + R)
             for cog in failed_cogs:
-                print(Fore.YELLOW + f"   • {cog}" + Style.RESET_ALL)
-            print(Fore.YELLOW + "\nThe bot will continue with reduced functionality." + Style.RESET_ALL)
-            print(Fore.YELLOW + "Please ensure all cog files are present in the 'cogs' directory." + Style.RESET_ALL)
-            print(Fore.YELLOW + "If you continue to have issues, try downloading the latest release.\n" + Style.RESET_ALL)
+                print(F.YELLOW + f"   • {cog}" + R)
+            print(F.YELLOW + "\nThe bot will continue with reduced functionality." + R)
+            print(F.YELLOW + "Please ensure all cog files are present in the 'cogs' directory." + R)
+            print(F.YELLOW + "If you continue to have issues, try downloading the latest release.\n" + R)
 
     @bot.event
     async def on_ready():
         try:
-            print(f"{Fore.GREEN}Logged in as {Fore.CYAN}{bot.user}{Style.RESET_ALL}")
+            print(f"{F.GREEN}Logged in as {F.CYAN}{bot.user}{R}")
             await bot.tree.sync()
         except Exception as e:
             print(f"Error syncing commands: {e}")
