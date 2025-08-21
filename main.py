@@ -156,6 +156,127 @@ def calculate_file_hash(filepath):
     except Exception:
         return None
 
+def get_removed_packages():
+    """Compare old and new requirements to find removed packages"""
+    if not os.path.exists("requirements.old") or not os.path.exists("requirements.txt"):
+        return []
+    
+    old_packages = set()
+    new_packages = set()
+    
+    try:
+        # Parse old requirements
+        with open("requirements.old", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    pkg_name = line.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("!=")[0]
+                    old_packages.add(pkg_name.strip().lower())
+        
+        # Parse new requirements
+        with open("requirements.txt", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    pkg_name = line.split("==")[0].split(">=")[0].split("<=")[0].split("~=")[0].split("!=")[0]
+                    new_packages.add(pkg_name.strip().lower())
+        
+        return list(old_packages - new_packages)
+    except Exception as e:
+        print(Fore.YELLOW + f"Error comparing requirements: {e}" + Style.RESET_ALL)
+        return []
+
+def cleanup_removed_packages():
+    """Uninstall packages that were removed from requirements"""
+    # If no requirements.old exists, this might be an upgrade from legacy version
+    if not os.path.exists("requirements.old"):
+        print(Fore.YELLOW + "No requirements.old found - checking for legacy packages..." + Style.RESET_ALL)
+        cleanup_legacy_packages()
+        return
+    
+    removed = get_removed_packages()
+    
+    if removed:
+        print(Fore.YELLOW + f"Found {len(removed)} packages removed from requirements: {', '.join(removed)}" + Style.RESET_ALL)
+        
+        debug_mode = "--verbose" in sys.argv or "--debug" in sys.argv
+        
+        for package in removed:
+            try:
+                cmd = [sys.executable, "-m", "pip", "uninstall", "-y", package]
+                
+                if debug_mode:
+                    subprocess.check_call(cmd, timeout=300)
+                else:
+                    subprocess.check_call(cmd, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(Fore.GREEN + f"✓ Removed {package}" + Style.RESET_ALL)
+            except subprocess.CalledProcessError:
+                print(Fore.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + Style.RESET_ALL)
+            except Exception as e:
+                print(Fore.YELLOW + f"✗ Error removing {package}: {e}" + Style.RESET_ALL)
+    
+    try:
+        if os.path.exists("requirements.old"):
+            os.remove("requirements.old")
+    except:
+        pass
+
+# Legacy packages that should be removed from older bot versions
+LEGACY_PACKAGES_TO_REMOVE = [
+    "ddddocr",
+    "easyocr", 
+    "torch",
+    "torchvision",
+    "torchaudio",
+    "opencv-python",
+    "opencv-python-headless",
+]
+
+def is_package_installed(package_name):
+    """Check if a package is installed"""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "show", package_name],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+def cleanup_legacy_packages():
+    """Remove known obsolete packages from older bot versions"""
+    print(Fore.YELLOW + "Checking for legacy packages to remove..." + Style.RESET_ALL)
+    
+    debug_mode = "--verbose" in sys.argv or "--debug" in sys.argv
+    removed_count = 0
+    
+    for package in LEGACY_PACKAGES_TO_REMOVE:
+        if is_package_installed(package):
+            print(Fore.YELLOW + f"Found legacy package: {package}" + Style.RESET_ALL)
+            try:
+                cmd = [sys.executable, "-m", "pip", "uninstall", "-y", package]
+                
+                if debug_mode:
+                    subprocess.check_call(cmd, timeout=300)
+                else:
+                    subprocess.check_call(cmd, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                print(Fore.GREEN + f"✓ Removed legacy package: {package}" + Style.RESET_ALL)
+                removed_count += 1
+            except subprocess.CalledProcessError:
+                print(Fore.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + Style.RESET_ALL)
+            except Exception as e:
+                print(Fore.YELLOW + f"✗ Error removing {package}: {e}" + Style.RESET_ALL)
+    
+    if removed_count > 0:
+        print(Fore.GREEN + f"Removed {removed_count} legacy package(s)" + Style.RESET_ALL)
+    else:
+        print(Fore.GREEN + "No legacy packages found to remove" + Style.RESET_ALL)
+    
+    return removed_count
+
 # Configuration for multiple update sources
 UPDATE_SOURCES = [
     {
@@ -389,32 +510,6 @@ except ImportError as e:
 
 import warnings
 
-try: # Clean up old ddddocr dependency if present
-    try: # Try importlib.metadata approach first
-        import importlib.metadata
-        installed_packages = [dist.metadata['Name'].lower() for dist in importlib.metadata.distributions()]
-    except ImportError:
-        try: # Fallback to pkg_resources if importlib.metadata not available
-            import pkg_resources
-            installed_packages = [pkg.key for pkg in pkg_resources.working_set]
-        except ImportError: # Neither available, skip cleanup
-            installed_packages = []
-    
-    obsolete_packages = ['ddddocr', 'opencv-python-headless']
-    
-    for package in obsolete_packages:
-        if package in installed_packages:
-            print(f"Found old {package} dependency, removing...")
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "uninstall", package, "-y"], 
-                                    timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                print(f"✓ Successfully removed {package}")
-            except Exception as e:
-                print(f"Warning: Failed to uninstall {package}: {e}")
-                print(f"You may want to manually uninstall it with: pip uninstall {package}")
-except Exception as e:
-    print(f"Warning: Error checking for ddddocr: {e}")
-
 v1_path = "V1oldbot"
 if os.path.exists(v1_path) and safe_remove(v1_path):
     print(f"Removed directory: {v1_path}")
@@ -546,6 +641,13 @@ if __name__ == "__main__":
                     update = True
                     
                 if update:
+                    # Backup requirements.txt for dependency comparison
+                    if os.path.exists("requirements.txt"):
+                        try:
+                            shutil.copy2("requirements.txt", "requirements.old")
+                        except Exception as e:
+                            print(Fore.YELLOW + f"Could not backup requirements.txt: {e}" + Style.RESET_ALL)
+                    
                     if os.path.exists("db") and os.path.isdir("db"):
                         print(Fore.YELLOW + "Making backup of database..." + Style.RESET_ALL)
                         
@@ -620,13 +722,27 @@ if __name__ == "__main__":
                             print(Fore.YELLOW + "Installing any new requirements..." + Style.RESET_ALL)
                             
                             success = install_packages(requirements_path, debug="--verbose" in sys.argv or "--debug" in sys.argv)
-                            safe_remove(requirements_path)
                             
                             if success:
                                 print(Fore.GREEN + "New requirements installed." + Style.RESET_ALL)
+                                
+                                # Copy new requirements.txt to working directory before cleanup
+                                try:
+                                    if os.path.exists("requirements.txt"):
+                                        os.remove("requirements.txt")
+                                    shutil.copy2(requirements_path, "requirements.txt")
+                                    print(Fore.GREEN + "Updated requirements.txt" + Style.RESET_ALL)
+                                except Exception as e:
+                                    print(Fore.YELLOW + f"Warning: Could not update requirements.txt: {e}" + Style.RESET_ALL)
+                                
+                                # Now cleanup removed packages (comparing old vs new)
+                                cleanup_removed_packages()
                             else:
                                 print(Fore.RED + "Failed to install requirements." + Style.RESET_ALL)
                                 return
+                            
+                            # Remove the requirements.txt from update folder after copying
+                            safe_remove(requirements_path)
                             
                         for root, _, files in os.walk(update_dir):
                             for file in files:
@@ -686,33 +802,6 @@ if __name__ == "__main__":
                             f.write(latest_tag)
                         
                         print(Fore.GREEN + f"Update completed successfully from {source_name}." + Style.RESET_ALL)
-                        
-                        try: # Clean up removed dependencies after update
-                            print(Fore.YELLOW + "Checking for obsolete dependencies..." + Style.RESET_ALL)
-                            try: # Try importlib.metadata approach first
-                                import importlib.metadata
-                                installed_packages = {dist.metadata['Name'].lower(): dist for dist in importlib.metadata.distributions()}
-                            except ImportError:
-                                
-                                try: # Fallback to pkg_resources if importlib.metadata not available
-                                    import pkg_resources
-                                    installed_packages = {pkg.key: pkg for pkg in pkg_resources.working_set}
-                                except ImportError:
-                                    installed_packages = {}
-                            
-                            obsolete_packages = ['ddddocr', 'opencv-python-headless']
-                            
-                            for package in obsolete_packages:
-                                if package in installed_packages:
-                                    print(f"Found obsolete package: {package}")
-                                    try:
-                                        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", package, "-y"], 
-                                                            timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                                        print(Fore.GREEN + f"✓ Removed {package}" + Style.RESET_ALL)
-                                    except Exception as e:
-                                        print(Fore.YELLOW + f"Warning: Could not remove {package}: {e}" + Style.RESET_ALL)
-                        except Exception as e:
-                            print(Fore.YELLOW + f"Could not check for obsolete packages: {e}" + Style.RESET_ALL)
                         
                         restart_bot()
                     else:
@@ -862,103 +951,13 @@ if __name__ == "__main__":
                 print(f"✗ Failed to load cog {cog}: {e}")
                 failed_cogs.append(cog)
         
-        if failed_cogs: # If any cogs failed, try to download missing files from the same release
-            print(f"Attempting to recover {len(failed_cogs)} missing cog files...")
-            
-            # Get current version to download matching source files
-            current_version = "v0.0.0"
-            if os.path.exists("version"):
-                with open("version", "r") as f:
-                    current_version = f.read().strip()
-            
-            # Try to get the release info for current version
-            release_info = None
-            for source in UPDATE_SOURCES:
-                try:
-                    if source['name'] == "GitHub":
-                        response = requests.get(source['api_url'], timeout=30)
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data["tag_name"] == current_version:
-                                release_info = {
-                                    "download_url": f"https://github.com/whiteout-project/bot-dev/archive/refs/tags/{current_version}.zip",
-                                    "source": source['name']
-                                }
-                                break
-                    elif source['name'] == "GitLab":
-                        response = requests.get(source['api_url'], timeout=30)
-                        if response.status_code == 200:
-                            releases = response.json()
-                            for release in releases:
-                                if release['tag_name'] == current_version:
-                                    release_info = {
-                                        "download_url": f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/archive/{current_version}/bot-{current_version}.zip",
-                                        "source": source['name']
-                                    }
-                                    break
-                            if release_info:
-                                break
-                except:
-                    continue
-            
-            if release_info and release_info.get("download_url"):
-                try:
-                    print(f"Downloading missing files from {release_info['source']}...")
-                    download_resp = requests.get(release_info["download_url"], timeout=300)
-                    
-                    if download_resp.status_code == 200:
-                        with open("temp_recovery.zip", "wb") as f:
-                            f.write(download_resp.content)
-                        
-                        import zipfile
-                        with zipfile.ZipFile("temp_recovery.zip", 'r') as zip_ref:
-                            # Extract cog files
-                            for file_info in zip_ref.namelist():
-                                if "/cogs/" in file_info and file_info.endswith(".py"):
-                                    try: # Strip archive prefix if present
-                                        # Handle GitHub/GitLab archive structure
-                                        parts = file_info.split("/")
-                                        if len(parts) > 2 and parts[1] == "cogs":
-                                            # Format: repo-name-tag/cogs/file.py
-                                            target_path = "/".join(parts[1:])
-                                        elif "cogs/" in file_info:
-                                            # Find cogs directory and use everything from there
-                                            cogs_index = file_info.find("cogs/")
-                                            target_path = file_info[cogs_index:]
-                                        else:
-                                            continue
-                                        
-                                        with zip_ref.open(file_info) as source:
-                                            os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                                            with open(target_path, 'wb') as target:
-                                                target.write(source.read())
-                                    except Exception as e:
-                                        print(f"Failed to extract {file_info}: {e}")
-                        
-                        safe_remove("temp_recovery.zip")
-                        
-                        # Retry loading failed cogs
-                        retry_failed = []
-                        for cog in failed_cogs:
-                            try:
-                                await bot.load_extension(f"cogs.{cog}")
-                            except Exception as e:
-                                retry_failed.append(cog)
-                        
-                        if retry_failed:
-                            print(f"⚠️ {len(retry_failed)} cogs still failed to load: {', '.join(retry_failed)}")
-                            print("Bot will continue with reduced functionality.")
-                        else:
-                            print("✓ All cogs recovered successfully!")
-                            
-                    else:
-                        print(f"Failed to download recovery files: HTTP {download_resp.status_code}")
-                        
-                except Exception as e:
-                    print(f"Error during cog recovery: {e}")
-                    print("Bot will continue with reduced functionality.")
-            else:
-                print("Could not find matching release for recovery. Bot will continue with reduced functionality.")
+        if failed_cogs:
+            print(Fore.RED + f"\n⚠️  {len(failed_cogs)} cog(s) failed to load:" + Style.RESET_ALL)
+            for cog in failed_cogs:
+                print(Fore.YELLOW + f"   • {cog}" + Style.RESET_ALL)
+            print(Fore.YELLOW + "\nThe bot will continue with reduced functionality." + Style.RESET_ALL)
+            print(Fore.YELLOW + "Please ensure all cog files are present in the 'cogs' directory." + Style.RESET_ALL)
+            print(Fore.YELLOW + "If you continue to have issues, try downloading the latest release.\n" + Style.RESET_ALL)
 
     @bot.event
     async def on_ready():
