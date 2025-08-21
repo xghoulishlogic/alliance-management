@@ -42,8 +42,8 @@ if sys.prefix == sys.base_prefix and not should_skip_venv():
             if sys.platform == "win32":
                 print("\nVirtual environment created.")
                 print("To continue, please run the script again with the venv Python:")
-                print(f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}")
-                print(f"  2. Run: {venv_python_name} {os.path.basename(sys.argv[0])}")
+                print(f"  1. Ensure CMD or PowerShell is open in this directory: {os.getcwd()}")
+                print(f"  2. Run this exact command: {venv_python_name} {os.path.basename(sys.argv[0])}")
                 sys.exit(0)
             else: # For non-Windows, try to relaunch automatically
                 print("Restarting script in virtual environment...")
@@ -61,8 +61,8 @@ if sys.prefix == sys.base_prefix and not should_skip_venv():
         if sys.platform == "win32":
             print(f"Virtual environment at {venv_path} exists.")
             print("To ensure you are using it, please run the script with the venv Python:")
-            print(f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}")
-            print(f"  2. Run: {venv_python_name} {os.path.basename(sys.argv[0])}")
+            print(f"  1. Ensure CMD or PowerShell is open in this directory: {os.getcwd()}")
+            print(f"  2. Run this exact command: {venv_python_name} {os.path.basename(sys.argv[0])}")
             sys.exit(0)
         elif '--no-venv' in sys.argv:
             print("Virtual environment setup skipped due to --no-venv flag.")
@@ -583,7 +583,7 @@ if __name__ == "__main__":
             
             venv_path = "bot_venv"
             venv_python_name = os.path.join(venv_path, "Scripts", "python.exe")
-            print(F.CYAN + f"  2. Run this exact command: {venv_python_name} {os.path.basename(script_path)}" + R)
+            print(F.CYAN + "  2. Run this exact command: " + F.GREEN + f"{venv_python_name} {os.path.basename(script_path)}" + R)
             sys.exit(0)
         else:
             # For non-Windows, try automatic restart
