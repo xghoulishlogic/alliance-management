@@ -386,9 +386,11 @@ def ensure_requirements_file():
                 f.write(download_resp.content)
             
             import zipfile
+            req_file = None
+            found_requirements = False
+            
             with zipfile.ZipFile("temp_package.zip", 'r') as zip_ref:
                 # Look for requirements.txt in the archive (might be in a subdirectory)
-                req_file = None
                 for filename in zip_ref.namelist():
                     if filename.endswith("requirements.txt"):
                         req_file = filename
@@ -397,20 +399,22 @@ def ensure_requirements_file():
                 if req_file:
                     # Extract to temp location first
                     zip_ref.extract(req_file, ".")
-                    
-                    # If it's in a subdirectory, move it to the current directory
-                    if "/" in req_file or "\\" in req_file:
-                        shutil.move(req_file, "requirements.txt")
-                        # Clean up the extracted subdirectory
-                        extracted_dir = req_file.split("/")[0] if "/" in req_file else req_file.split("\\")[0]
-                        safe_remove(extracted_dir, is_dir=True)
-                    
-                    print("Successfully downloaded requirements.txt")
-                    safe_remove("temp_package.zip")
-                    return True
-                
+                    found_requirements = True
+            
             safe_remove("temp_package.zip")
-            print("requirements.txt not found in the downloaded archive")
+            
+            if found_requirements and req_file:
+                # If it's in a subdirectory, move it to the current directory
+                if "/" in req_file or "\\" in req_file:
+                    shutil.move(req_file, "requirements.txt")
+                    # Clean up the extracted subdirectory
+                    extracted_dir = req_file.split("/")[0] if "/" in req_file else req_file.split("\\")[0]
+                    safe_remove(extracted_dir, is_dir=True)
+                
+                print("Successfully downloaded requirements.txt")
+                return True
+            else:
+                print("requirements.txt not found in the downloaded archive")
         
         print(f"Failed to download from {release_info['source']}")
         return False
@@ -574,13 +578,12 @@ if __name__ == "__main__":
 
         if sys.platform == "win32":
             # For Windows, provide direct venv command like initial setup
-            print(F.GREEN + "Update completed successfully!" + R)
             print(F.YELLOW + "Please restart the bot manually to continue:" + R)
-            print(F.CYAN + f"  1. Open CMD or PowerShell in this directory: {os.getcwd()}" + R)
+            print(F.CYAN + f"  1. Ensure CMD or PowerShell is open in this directory: {os.getcwd()}" + R)
             
             venv_path = "bot_venv"
             venv_python_name = os.path.join(venv_path, "Scripts", "python.exe")
-            print(F.CYAN + f"  2. Run: {venv_python_name} {os.path.basename(script_path)}" + R)
+            print(F.CYAN + f"  2. Run this exact command: {venv_python_name} {os.path.basename(script_path)}" + R)
             sys.exit(0)
         else:
             # For non-Windows, try automatic restart
@@ -617,20 +620,21 @@ if __name__ == "__main__":
             latest_tag = release_info["tag_name"]
             source_name = release_info["source"]
             
-            # For beta mode, always show as update available
-            if beta_mode:
-                print(F.YELLOW + f"Beta mode: Pulling latest from main branch" + R)
-                current_version = "beta-mode"  # Force update in beta mode
-            elif repair_mode:
+            # Check current version
+            if repair_mode:
                 print(F.YELLOW + f"Repair mode: Forcing reinstall from {latest_tag}" + R)
                 current_version = "repair-mode"  # Force update in repair mode
             elif os.path.exists("version"):
                 with open("version", "r") as f:
                     current_version = f.read().strip()
+                if beta_mode:
+                    print(F.YELLOW + f"Beta mode: Comparing latest commit from main branch" + R)
             else:
                 current_version = "v0.0.0"
-            
-            if not beta_mode and not repair_mode:
+                if beta_mode:
+                    print(F.YELLOW + f"Beta mode: Comparing latest commit from main branch" + R)
+
+            if not repair_mode:
                 print(F.CYAN + f"Current version: {current_version}" + R)
 
             if current_version != latest_tag or repair_mode:
@@ -802,7 +806,6 @@ if __name__ == "__main__":
                                                 os.remove(backup_path)
                                             # Copy current file to backup
                                             shutil.copy2(dst_path, backup_path)
-                                            print(F.YELLOW + f"Backed up: {dst_path}" + R)
                                         except Exception as e:
                                             print(F.YELLOW + f"Could not create backup of {dst_path}: {e}" + R)
                                         
