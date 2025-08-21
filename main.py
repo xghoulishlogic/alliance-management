@@ -555,10 +555,14 @@ if __name__ == "__main__":
     import requests
 
     # Check for mutually exclusive flags
-    if "--autoupdate" in sys.argv and "--no-update" in sys.argv:
-        print(F.RED + "Error: --autoupdate and --no-update flags are mutually exclusive." + R)
+    mutually_exclusive_flags = ["--autoupdate", "--no-update", "--repair"]
+    active_flags = [flag for flag in mutually_exclusive_flags if flag in sys.argv]
+    
+    if len(active_flags) > 1:
+        print(F.RED + f"Error: {' and '.join(active_flags)} flags are mutually exclusive." + R)
         print("Use --autoupdate to automatically install updates without prompting.")
         print("Use --no-update to skip all update checks.")
+        print("Use --repair to force reinstall/repair missing or corrupted files.")
         sys.exit(1)
 
     def restart_bot():
@@ -606,6 +610,7 @@ if __name__ == "__main__":
     
     async def check_and_update_files():
         beta_mode = "--beta" in sys.argv
+        repair_mode = "--repair" in sys.argv
         release_info = get_latest_release_info(beta_mode=beta_mode)
         
         if release_info:
@@ -616,25 +621,32 @@ if __name__ == "__main__":
             if beta_mode:
                 print(F.YELLOW + f"Beta mode: Pulling latest from main branch" + R)
                 current_version = "beta-mode"  # Force update in beta mode
+            elif repair_mode:
+                print(F.YELLOW + f"Repair mode: Forcing reinstall from {latest_tag}" + R)
+                current_version = "repair-mode"  # Force update in repair mode
             elif os.path.exists("version"):
                 with open("version", "r") as f:
                     current_version = f.read().strip()
             else:
                 current_version = "v0.0.0"
             
-            if not beta_mode:
+            if not beta_mode and not repair_mode:
                 print(F.CYAN + f"Current version: {current_version}" + R)
 
-            if current_version != latest_tag:
-                print(F.YELLOW + f"New version available: {latest_tag} (from {source_name})" + R)
-                print("Update Notes:")
-                print(release_info["body"])
+            if current_version != latest_tag or repair_mode:
+                if repair_mode:
+                    print(F.YELLOW + f"Repairing installation using: {latest_tag} (from {source_name})" + R)
+                    print("This will overwrite existing files and restore any missing components.")
+                else:
+                    print(F.YELLOW + f"New version available: {latest_tag} (from {source_name})" + R)
+                    print("Update Notes:")
+                    print(release_info["body"])
                 print()
                 
                 update = False
                 
                 if not is_container():
-                    if "--autoupdate" in sys.argv:
+                    if "--autoupdate" in sys.argv or repair_mode:
                         update = True
                     else:
                         print("Note: If your terminal is not interactive, you can use the --autoupdate argument to skip this prompt.")
@@ -817,7 +829,10 @@ if __name__ == "__main__":
     import asyncio
     from datetime import datetime
             
-    if "--no-update" in sys.argv:
+    # Handle update/repair logic
+    if "--repair" in sys.argv:
+        asyncio.run(check_and_update_files())
+    elif "--no-update" in sys.argv:
         print(F.YELLOW + "Update check skipped due to --no-update flag." + R)
     else:
         asyncio.run(check_and_update_files())
@@ -960,8 +975,8 @@ if __name__ == "__main__":
             for cog in failed_cogs:
                 print(F.YELLOW + f"   • {cog}" + R)
             print(F.YELLOW + "\nThe bot will continue with reduced functionality." + R)
-            print(F.YELLOW + "Please ensure all cog files are present in the 'cogs' directory." + R)
-            print(F.YELLOW + "If you continue to have issues, try downloading the latest release.\n" + R)
+            print(F.YELLOW + "To fix missing or corrupted files, run: " + F.GREEN + "python main.py --repair" + R)
+            print(F.YELLOW + "This will download and restore all files from the latest release.\n" + R)
 
     @bot.event
     async def on_ready():
