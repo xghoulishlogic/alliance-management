@@ -943,6 +943,9 @@ class AllianceMemberOperations(commands.Cog):
         
         # Check if we need to show queue message
         queue_info = self.login_handler.get_queue_info()
+        # Calculate member count
+        member_count = len(ids.split(',') if ',' in ids else ids.split('\n'))
+        
         if queue_position > 1:  # Not the first in queue
             queue_embed = discord.Embed(
                 title="⏳ Operation Queued",
@@ -951,7 +954,7 @@ class AllianceMemberOperations(commands.Cog):
                     f"**Your operation has been queued:**\n"
                     f"📍 Queue Position: `{queue_position}`\n"
                     f"🏰 Alliance: {alliance_name}\n"
-                    f"👥 Members to add: {len(ids.split(',') if ',' in ids else ids.split('\n'))}\n\n"
+                    f"👥 Members to add: {member_count}\n\n"
                     f"You will be notified when your operation starts."
                 ),
                 color=discord.Color.orange()
@@ -959,7 +962,7 @@ class AllianceMemberOperations(commands.Cog):
             await interaction.response.send_message(embed=queue_embed, ephemeral=True)
         else:
             # First in queue - will start immediately
-            total_count = len(ids.split(',') if ',' in ids else ids.split('\n'))
+            total_count = member_count
             embed = discord.Embed(
                 title="👥 User Addition Progress", 
                 description=f"Processing {total_count} members for **{alliance_name}**...\n\n**Progress:** `0/{total_count}`", 
@@ -1325,7 +1328,6 @@ class AllianceMemberOperations(commands.Cog):
 
     async def is_admin(self, user_id):
         try:
-            
             with sqlite3.connect('db/settings.sqlite') as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT id FROM admin WHERE id = ?", (user_id,))
@@ -1338,13 +1340,11 @@ class AllianceMemberOperations(commands.Cog):
             return False
 
     def cog_unload(self):
-        
         self.conn_users.close()
         self.conn_alliance.close()
 
     async def get_admin_alliances(self, user_id: int, guild_id: int):
         try:
-            
             with sqlite3.connect('db/settings.sqlite') as settings_db:
                 cursor = settings_db.cursor()
                 cursor.execute("SELECT is_initial FROM admin WHERE id = ?", (user_id,))
@@ -1364,10 +1364,8 @@ class AllianceMemberOperations(commands.Cog):
                     alliances = cursor.fetchall()
                     return alliances, [], True
             
-            
             server_alliances = []
             special_alliances = []
-            
             
             with sqlite3.connect('db/alliance.sqlite') as alliance_db:
                 cursor = alliance_db.cursor()
@@ -1379,7 +1377,6 @@ class AllianceMemberOperations(commands.Cog):
                 """, (guild_id,))
                 server_alliances = cursor.fetchall()
             
-            
             with sqlite3.connect('db/settings.sqlite') as settings_db:
                 cursor = settings_db.cursor()
                 cursor.execute("""
@@ -1389,7 +1386,6 @@ class AllianceMemberOperations(commands.Cog):
                 """, (user_id,))
                 special_alliance_ids = cursor.fetchall()
                 
-            
             if special_alliance_ids:
                 with sqlite3.connect('db/alliance.sqlite') as alliance_db:
                     cursor = alliance_db.cursor()
@@ -1453,8 +1449,6 @@ class AddMemberModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-
-            
             ids = self.children[0].value
             await interaction.client.get_cog("AllianceMemberOperations").add_user(
                 interaction, 
@@ -1532,7 +1526,6 @@ class AllianceSelectView(discord.ui.View):
     @discord.ui.button(label="Select by FID", emoji="🔍", style=discord.ButtonStyle.secondary)
     async def fid_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            
             if self.current_select and self.current_select.values:
                 self.selected_alliance_id = self.current_select.values[0]
             
@@ -1607,8 +1600,7 @@ class FIDSearchModal(discord.ui.Modal):
                     return
 
                 fid, nickname, furnace_lv, current_alliance_id = user_result
-
-                
+ 
                 with sqlite3.connect('db/alliance.sqlite') as alliance_db:
                     cursor = alliance_db.cursor()
                     cursor.execute("SELECT name FROM alliance_list WHERE alliance_id = ?", (current_alliance_id,))
