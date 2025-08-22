@@ -461,22 +461,19 @@ def check_and_install_requirements():
 
 def setup_dependencies():
     """Main function to set up all dependencies."""
-    print("Starting dependency check...")
+    print("\nChecking dependencies...")
     
     if not os.path.exists("requirements.txt"):
-        print("Warning: requirements.txt not found.")
-        # Try to download for legacy installations
+        print("  ! Warning: requirements.txt not found")
         if not download_requirements_from_release():
-            print("Failed to download the requirements.txt file.")
-            print("Please get the requirements.txt file from the latest release: https://github.com/whiteout-project/bot/releases")
+            print("  ✗ Failed to download requirements.txt")
+            print("  • Please download the complete bot package from: https://github.com/whiteout-project/bot/releases")
             return False
     
-    # Check and install all requirements
     if not check_and_install_requirements():
-        print("Failed to install requirements")
+        print("  ✗ Failed to install requirements")
         return False
     
-    print("Dependency check completed...")
     return True
 
 if not setup_dependencies():
@@ -562,8 +559,8 @@ if __name__ == "__main__":
     def restart_bot():
         python = sys.executable
         script_path = os.path.abspath(sys.argv[0])
-        # Filter out --no-venv from restart args to avoid loops
-        filtered_args = [arg for arg in sys.argv[1:] if arg != "--no-venv"]
+        # Filter out --no-venv and --repair from restart args to avoid loops
+        filtered_args = [arg for arg in sys.argv[1:] if arg not in ["--no-venv", "--repair"]]
         args = [python, script_path] + filtered_args
 
         if sys.platform == "win32":
@@ -585,7 +582,6 @@ if __name__ == "__main__":
                 print(f"Error restarting: {e}")
                 os.execl(python, python, script_path, *sys.argv[1:])
             
-
     def install_packages(requirements_txt_path: str, debug: bool = False) -> bool:
         """Install packages from requirements.txt file using pip install -r."""
         full_command = [sys.executable, "-m", "pip", "install", "-r", requirements_txt_path, "--no-cache-dir"]
