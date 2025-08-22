@@ -355,6 +355,51 @@ def get_latest_release_info(beta_mode=False):
     print("All update sources failed")
     return None
 
+def download_requirements_from_release():
+    """
+    Download requirements.txt file directly from the latest release.
+    Needed for legacy installation upgrades.
+    """
+    if os.path.exists("requirements.txt"):
+        return True
+    
+    print("requirements.txt not found. Downloading from latest release...")
+    
+    # Get latest release info to find the tag
+    release_info = get_latest_release_info()
+    if not release_info:
+        print("Could not get release information")
+        return False
+    
+    tag = release_info["tag_name"]
+    source_name = release_info.get("source", "Unknown")
+    
+    # Build raw URL based on source
+    if source_name == "GitHub":
+        raw_url = f"https://raw.githubusercontent.com/whiteout-project/bot/refs/tags/{tag}/requirements.txt"
+    elif source_name == "GitLab":
+        raw_url = f"https://gitlab.whiteout-bot.com/whiteout-project/bot/-/raw/{tag}/requirements.txt"
+    else:
+        print(f"Unknown source: {source_name}")
+        return False
+    
+    try:
+        print(f"Downloading from {source_name}: {raw_url}")
+        response = requests.get(raw_url, timeout=30)
+        
+        if response.status_code == 200:
+            with open("requirements.txt", "w") as f:
+                f.write(response.text)
+            print("Successfully downloaded requirements.txt")
+            return True
+        else:
+            print(f"Failed to download: HTTP {response.status_code}")
+            return False
+            
+    except Exception as e:
+        print(f"Error downloading requirements.txt: {e}")
+        return False
+
 def check_and_install_requirements():
     """Check each requirement and install missing ones."""
     if not os.path.exists("requirements.txt"):
@@ -420,7 +465,11 @@ def setup_dependencies():
     
     if not os.path.exists("requirements.txt"):
         print("Warning: requirements.txt not found.")
-        return False
+        # Try to download for legacy installations
+        if not download_requirements_from_release():
+            print("Failed to download the requirements.txt file.")
+            print("Please get the requirements.txt file from the latest release: https://github.com/whiteout-project/bot/releases")
+            return False
     
     # Check and install all requirements
     if not check_and_install_requirements():
