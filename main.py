@@ -419,7 +419,7 @@ def setup_dependencies():
     print("Starting dependency check...")
     
     if not os.path.exists("requirements.txt"):
-        print(F.YELLOW + "Warning: requirements.txt not found." + R)
+        print("Warning: requirements.txt not found.")
         return False
     
     # Check and install all requirements
