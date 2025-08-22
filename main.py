@@ -98,6 +98,7 @@ def remove_readonly(func, path, _):
 def safe_remove(path, is_dir=None):
     """
     Safely remove a file or directory.
+    Clear the read-only bit on Windows.
     
     Args:
         path: Path to file or directory to remove
@@ -109,24 +110,20 @@ def safe_remove(path, is_dir=None):
     if not os.path.exists(path):
         return True  # Already gone, consider it success
     
-    # Auto-detect type if not specified
-    if is_dir is None:
+    if is_dir is None: # Auto-detect type if not specified
         is_dir = os.path.isdir(path)
     
     try:
         if is_dir:
-            # Directory removal with readonly handler (Windows only)
             if sys.platform == "win32":
                 shutil.rmtree(path, onexc=remove_readonly)
             else:
                 shutil.rmtree(path)
         else:
-            # File removal with readonly bit clearing (Windows only)
             try:
                 os.remove(path)
             except PermissionError:
                 if sys.platform == "win32":
-                    # Try clearing readonly bit on Windows
                     os.chmod(path, stat.S_IWRITE)
                     os.remove(path)
                 else:
@@ -135,7 +132,7 @@ def safe_remove(path, is_dir=None):
         return True
         
     except PermissionError:
-        print(f"Warning: Access Denied. Could not remove '{path}'. Check permissions or if {'directory' if is_dir else 'file'} is in use.")
+        print(f"Warning: Access Denied. Could not remove '{path}'.\nCheck permissions or if {'directory' if is_dir else 'file'} is in use.")
     except OSError as e:
         print(f"Warning: Could not remove '{path}': {e}")
     
@@ -221,7 +218,7 @@ def cleanup_removed_packages():
     except:
         pass
 
-# Legacy packages that should be removed from older bot versions
+# Potential leftovers from older bot versions
 LEGACY_PACKAGES_TO_REMOVE = [
     "ddddocr",
     "easyocr", 
@@ -254,7 +251,6 @@ def cleanup_legacy_packages():
     
     for package in LEGACY_PACKAGES_TO_REMOVE:
         if is_package_installed(package):
-            print(F.YELLOW + f"Found legacy package: {package}" + R)
             try:
                 cmd = [sys.executable, "-m", "pip", "uninstall", "-y", package]
                 
@@ -269,12 +265,7 @@ def cleanup_legacy_packages():
                 print(F.YELLOW + f"✗ Could not remove {package} (might be needed by other packages)" + R)
             except Exception as e:
                 print(F.YELLOW + f"✗ Error removing {package}: {e}" + R)
-    
-    if removed_count > 0:
-        print(F.GREEN + f"Removed {removed_count} legacy package(s)" + R)
-    else:
-        print(F.GREEN + "No legacy packages found to remove" + R)
-    
+        
     return removed_count
 
 # Configuration for multiple update sources
@@ -364,69 +355,10 @@ def get_latest_release_info(beta_mode=False):
     print("All update sources failed")
     return None
 
-def ensure_requirements_file():
-    """Ensure requirements.txt exists, download from available sources if needed."""
-    if os.path.exists("requirements.txt"):
-        return True
-    
-    print("requirements.txt not found. Attempting to download from available sources...")
-    
-    release_info = get_latest_release_info()
-    if not release_info or not release_info.get("download_url"):
-        print("Could not find a valid download source for requirements.txt")
-        return False
-    
-    try:
-        download_url = release_info["download_url"]
-        print(f"Downloading from {release_info['source']}: {download_url}")
-        
-        download_resp = requests.get(download_url, timeout=300)
-        if download_resp.status_code == 200:
-            with open("temp_package.zip", "wb") as f:
-                f.write(download_resp.content)
-            
-            import zipfile
-            req_file = None
-            found_requirements = False
-            
-            with zipfile.ZipFile("temp_package.zip", 'r') as zip_ref:
-                # Look for requirements.txt in the archive (might be in a subdirectory)
-                for filename in zip_ref.namelist():
-                    if filename.endswith("requirements.txt"):
-                        req_file = filename
-                        break
-                
-                if req_file:
-                    # Extract to temp location first
-                    zip_ref.extract(req_file, ".")
-                    found_requirements = True
-            
-            safe_remove("temp_package.zip")
-            
-            if found_requirements and req_file:
-                # If it's in a subdirectory, move it to the current directory
-                if "/" in req_file or "\\" in req_file:
-                    shutil.move(req_file, "requirements.txt")
-                    # Clean up the extracted subdirectory
-                    extracted_dir = req_file.split("/")[0] if "/" in req_file else req_file.split("\\")[0]
-                    safe_remove(extracted_dir, is_dir=True)
-                
-                print("Successfully downloaded requirements.txt")
-                return True
-            else:
-                print("requirements.txt not found in the downloaded archive")
-        
-        print(f"Failed to download from {release_info['source']}")
-        return False
-        
-    except Exception as e:
-        print(f"Error downloading requirements.txt: {e}")
-        return False
-
 def check_and_install_requirements():
     """Check each requirement and install missing ones."""
     if not os.path.exists("requirements.txt"):
-        print("No requirements.txt found after download attempt")
+        print("No requirements.txt found")
         return False
         
     # Read requirements
@@ -486,9 +418,8 @@ def setup_dependencies():
     """Main function to set up all dependencies."""
     print("Starting dependency check...")
     
-    # Ensure requirements.txt exists
-    if not ensure_requirements_file():
-        print("Failed to obtain requirements.txt")
+    if not os.path.exists("requirements.txt"):
+        print(F.YELLOW + "Warning: requirements.txt not found." + R)
         return False
     
     # Check and install all requirements
@@ -518,21 +449,27 @@ R = Style.RESET_ALL
 
 import warnings
 
-v1_path = "V1oldbot"
-if os.path.exists(v1_path) and safe_remove(v1_path):
-    print(f"Removed directory: {v1_path}")
+def startup_cleanup():
+    """Perform all cleanup tasks on startup - directories, files, and legacy packages."""
+    v1_path = "V1oldbot"
+    if os.path.exists(v1_path) and safe_remove(v1_path):
+        print(f"Removed directory: {v1_path}")
+    
+    v2_path = "V2Old"
+    if os.path.exists(v2_path) and safe_remove(v2_path):
+        print(f"Removed directory: {v2_path}")
+    
+    pictures_path = "pictures"
+    if os.path.exists(pictures_path) and safe_remove(pictures_path):
+        print(f"Removed directory: {pictures_path}")
+    
+    txt_path = "autoupdateinfo.txt"
+    if os.path.exists(txt_path) and safe_remove(txt_path):
+        print(f"Removed file: {txt_path}")
+    
+    cleanup_legacy_packages()
 
-v2_path = "V2Old"
-if os.path.exists(v2_path) and safe_remove(v2_path):
-    print(f"Removed directory: {v2_path}")
-
-pictures_path = "pictures"
-if os.path.exists(pictures_path) and safe_remove(pictures_path):
-    print(f"Removed directory: {pictures_path}")
-
-txt_path = "autoupdateinfo.txt"
-if os.path.exists(txt_path) and safe_remove(txt_path):
-    print(f"Removed file: {txt_path}")
+startup_cleanup()
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
