@@ -612,7 +612,7 @@ class GiftOperations(commands.Cog):
             # Start periodic validation loop
             if not self.periodic_validation_loop.is_running():
                 self.periodic_validation_loop.start()
-                self.logger.info("Started periodic validation loop (15 minute interval)")
+                self.logger.info("Started periodic validation loop (2 hour interval)")
             
             self.logger.info("GiftOps Cog: on_ready setup finished successfully.")
 
@@ -1615,7 +1615,7 @@ class GiftOperations(commands.Cog):
         except Exception as e:
             self.logger.exception(f"Error during invalid codes cleanup: {e}")
 
-    @tasks.loop(seconds=900)
+    @tasks.loop(seconds=7200)
     async def periodic_validation_loop(self):
         """Periodically validate existing codes that are marked as 'valid' or 'pending'."""
         loop_start_time = datetime.now()
@@ -1646,8 +1646,8 @@ class GiftOperations(commands.Cog):
                 self.logger.info(f"GiftOps: Found {len(codes_to_check)} codes to validate periodically.")
                 
                 # Get test FID for validation
-                test_fid = self.get_test_fid()
-                self.logger.info(f"GiftOps: Using test FID {test_fid} for periodic validation.")
+                test_fid, fid_source = await self.get_validation_fid()
+                self.logger.info(f"GiftOps: Using {fid_source} FID {test_fid} for periodic validation.")
                 
                 codes_checked = 0
                 codes_invalidated = 0
@@ -1713,9 +1713,15 @@ class GiftOperations(commands.Cog):
                         
                         else:
                             self.logger.info(f"GiftOps: Code '{giftcode}' returned status '{status}' during periodic validation.")
+                            
+                            # Extra delay for CAPTCHA_TOO_FREQUENT errors
+                            if status == "CAPTCHA_TOO_FREQUENT":
+                                self.logger.info(f"GiftOps: Encountered CAPTCHA_TOO_FREQUENT, waiting 60-90 seconds before next validation")
+                                await asyncio.sleep(random.uniform(60.0, 90.0))
+                                continue
                         
                         # Wait between validations to avoid rate limiting
-                        await asyncio.sleep(random.uniform(2.0, 4.0))
+                        await asyncio.sleep(random.uniform(30.0, 60.0))
                         
                     except Exception as e:
                         self.logger.exception(f"Error validating code '{giftcode}' during periodic check: {e}")
