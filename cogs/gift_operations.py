@@ -1437,9 +1437,9 @@ class GiftOperations(commands.Cog):
                     new_status = 'validated' if is_valid else 'invalid'
                     self.cursor.execute("""
                         UPDATE gift_codes 
-                        SET validation_status = ?, validated_at = ?
+                        SET validation_status = ?
                         WHERE giftcode = ?
-                    """, (new_status, datetime.now().isoformat(), giftcode))
+                    """, (new_status, giftcode))
                     self.conn.commit()
                     
                     # Store validation result
@@ -1589,9 +1589,8 @@ class GiftOperations(commands.Cog):
             self.cursor.execute("""
                 SELECT COUNT(*) FROM gift_codes 
                 WHERE validation_status = 'invalid' 
-                AND (validated_at IS NOT NULL AND validated_at < ?)
-                OR (validated_at IS NULL AND created_at < ?)
-            """, (cutoff_date, cutoff_date))
+                AND date < ?
+            """, (cutoff_date,))
             delete_count = self.cursor.fetchone()[0]
             
             if delete_count > 0:
@@ -1599,9 +1598,8 @@ class GiftOperations(commands.Cog):
                 self.cursor.execute("""
                     DELETE FROM gift_codes 
                     WHERE validation_status = 'invalid' 
-                    AND (validated_at IS NOT NULL AND validated_at < ?)
-                    OR (validated_at IS NULL AND created_at < ?)
-                """, (cutoff_date, cutoff_date))
+                    AND date < ?
+                """, (cutoff_date,))
                 
                 # Also clean up any related user_giftcodes entries for deleted codes
                 self.cursor.execute("""
