@@ -2454,7 +2454,7 @@ class GiftOperations(commands.Cog):
                 FROM gift_codes gc
                 LEFT JOIN user_giftcodes ugc ON gc.giftcode = ugc.giftcode
                 GROUP BY gc.giftcode, gc.date, gc.validation_status
-                ORDER BY gc.date DESC
+                ORDER BY gc.date ASC
             """)
             
             codes = self.cursor.fetchall()
@@ -2470,9 +2470,12 @@ class GiftOperations(commands.Cog):
                 )
                 return
 
+            # Discord limits Select menus to 25 options
+            total_codes = len(codes)
+            codes_to_show = codes[:25] if total_codes > 25 else codes
+            
             select_options = []
-            for code, date, validation_status, used_count in codes:
-                # Format status for display
+            for code, date, validation_status, used_count in codes_to_show:
                 if validation_status == 'validated':
                     status_display = "✅ Valid"
                 elif validation_status == 'invalid':
@@ -2489,6 +2492,18 @@ class GiftOperations(commands.Cog):
                         value=code
                     )
                 )
+            
+            # Handling for 0 codes to avoid errors
+            if not select_options:
+                await interaction.response.send_message(
+                    embed=discord.Embed(
+                        title="❌ No Gift Codes Available",
+                        description="No gift codes found in the database to delete.",
+                        color=discord.Color.red()
+                    ),
+                    ephemeral=True
+                )
+                return
             
             select = discord.ui.Select(
                 placeholder="Select a gift code to delete",
@@ -2593,16 +2608,26 @@ class GiftOperations(commands.Cog):
             view = discord.ui.View()
             view.add_item(select)
 
+            # Build description with truncation notice if needed
+            description_text = (
+                f"**Instructions**\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"1️⃣ Select a gift code from the menu below\n"
+                f"2️⃣ Confirm your selection\n"
+                f"3️⃣ The code will be permanently deleted\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            )
+            
+            if total_codes > 25:
+                description_text += (
+                    f"\n⚠️ **Note:** Showing 25 of {total_codes} codes.\n"
+                    f"Oldest codes are shown first.\n"
+                    f"To delete newer codes, you'll need to delete the older ones first."
+                )
+            
             initial_embed = discord.Embed(
                 title="🗑️ Delete Gift Code",
-                description=(
-                    f"**Instructions**\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"1️⃣ Select a gift code from the menu below\n"
-                    f"2️⃣ Confirm your selection\n"
-                    f"3️⃣ The code will be permanently deleted\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                ),
+                description=description_text,
                 color=discord.Color.blue()
             )
 
