@@ -69,6 +69,9 @@ variables:
 .cleanup_bot_processes: &cleanup_bot_processes |
   echo "=== Bot process cleanup for job $CI_JOB_ID ==="
   
+  # Kill any tail processes monitoring logs
+  pkill -f "tail -f bot_output.log" 2>/dev/null || true
+  
   if [ -f .bot_pid ]; then
     PID=$(cat .bot_pid)
     echo "Cleaning up bot process $PID and its children"
@@ -457,9 +460,13 @@ test-bot-linux-no-update:
     - echo "Testing bot startup on Linux without updates (native)..."
     - *bot_token_setup
     - |
-      python main.py --no-venv --no-update 2>&1 | tee bot_output.log &
+      # Start bot and capture its PID
+      python main.py --no-venv --no-update > bot_output.log 2>&1 &
       BOT_PID=$!
       echo $BOT_PID > .bot_pid
+      
+      tail -f bot_output.log &
+      TAIL_PID=$!
       
       TIMEOUT=180
       START_TIME=$(date +%s)
@@ -489,6 +496,8 @@ test-bot-linux-no-update:
            grep -q "Logged in as" bot_output.log && \
            grep -q "Activation messages sent to admin user." bot_output.log; then
           echo "Bot initialization successful!"
+          # Kill the tail process first
+          kill $TAIL_PID 2>/dev/null || true
           # Kill the bot process since we've confirmed it started successfully
           kill $BOT_PID 2>/dev/null || true
           sleep 2
