@@ -178,26 +178,32 @@ Numerous flags are available that can be used to adjust how the bot runs. These 
 | `--no-update` | Skips the bot's update check, even in container/CI environment. Mutually exclusive with `--autoupdate` and overrides it.
 | `--debug` | Additional output for debugging purposes, particularly when requirements installation fails.
 | `--verbose` | Same as `--debug` above.
+| `--repair` | Attempt to repair the installation by forcing an update to fix any missing files. Works with `--beta` as well.
 
 ##  🛠️ Version v1.3.0 (Current)
 
 ### 📋 TL;DR Summary
-- 🔄 Bot now updates directly from release source (no more patch.zip)
 - 🖼️ Gift Operations uses lightweight ONNX-based OCR Model
-- 👥 **NEW:** Minister Scheduling system for SvS prep
-- 📊 **NEW:** Attendance tracking for all events
-- 🔐 **NEW:** Centralized Login Handler for API operations
+- 👥 Minister Scheduling system for SvS prep
+- 📊 Attendance tracking for all events
+- 🔐 Centralized Login Handler for API operations
 - ⚡ Alliance and Control systems completely overhauled for speed
+- 🔄 Bot now updates directly from release source (no more patch.zip)
+- ♻️ Repair option to fix any issues with missing files added
+- ⚠️ New beta option to pull the latest repository code directly
 
 ### 🔄 Update System Overhaul
-- Updates now pull directly from release source instead of separate patch.zip files
-- Added `--beta` flag to pull directly from repository  
+- **Added a few new options:**
+  - `--beta` flag to pull directly from repository.
   ⚠️ **This runs unstable code:** Use at your own risk!
-- Added `--no-venv` flag for environments that require it  
+  - Added `--no-venv` flag for environments that require it.
   ⚠️ **Dependency conflicts may arise** - you have been warned!
+  - `--repair` which will attempt to repair by forcing an update to fix any missing files.
+- Updates now pull directly from release source instead of separate patch.zip files
 - During updates, modified cogs are backed up to `cogs.bak` folder
 - Smart update system compares files via SHA hashing - only replaces changed files
-- Automatically removes obsolete dependencies (ddddocr, opencv-python-headless)
+- Automatically removes obsolete dependencies (such as ddddocr, opencv-python-headless)
+- If requirements or cogs are missing, the bot will load but advise to run `--repair` option
 
 ### 🤝 Alliance Improvements
 
@@ -238,14 +244,18 @@ Numerous flags are available that can be used to adjust how the bot runs. These 
 - Reorganized menu with new `Settings` button containing:
   - Channel Management
   - Automatic Redemption
-  - **NEW:** Channel History Scan
+  - Channel History Scan
   - CAPTCHA Settings
 - Instant validation for all new gift codes
+- Periodic code validation every 2 hours
 - Smart priority system for validation FIDs
 - Immediate processing of new messages in gift code channels
 - On-demand gift code channel history scan (up to 75 messages)
 - Extended menu timeouts to 2 hours
 - Optimized database transactions
+- Clear Redemption Cache option added under CAPTCHA Settings
+- Error breakdown added if any errors occurred during redemption
+- For more details on errors, please check `log/gift_ops.txt`
 
 ### 🔐 Login Handler (New Cog)
 
