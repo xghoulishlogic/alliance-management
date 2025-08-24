@@ -94,8 +94,23 @@ variables:
       echo "Process $PID successfully terminated"
     fi
   else
-    echo "No .bot_pid file found - nothing to clean up"
+    echo "No .bot_pid file found"
   fi
+  
+  # This handles cases where the bot restarted with a new PID
+  CURRENT_DIR=$(pwd)
+  echo "Checking for any remaining bot processes in $CURRENT_DIR"
+  
+  # Find processes running from current directory
+  for pid in $(ps aux | grep -E "python[0-9]?.*main.py" | grep -v grep | awk '{print $2}'); do
+    # Check if this process is running from our directory
+    if ls -l /proc/$pid/cwd 2>/dev/null | grep -q "$CURRENT_DIR"; then
+      echo "Found bot process $pid running from job directory - killing it"
+      kill -TERM $pid 2>/dev/null || true
+      sleep 1
+      kill -KILL $pid 2>/dev/null || true
+    fi
+  done
 
 sync_from_github:
   stage: sync
