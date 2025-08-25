@@ -1565,6 +1565,14 @@ class FIDSearchModal(discord.ui.Modal):
         try:
             fid = self.children[0].value.strip()
             
+            # Validate FID input
+            if not fid:
+                await interaction.response.send_message(
+                    "❌ Please enter a valid FID.",
+                    ephemeral=True
+                )
+                return
+            
             # Check if we're in a history context
             if self.context in ["furnace_history", "nickname_history"]:
                 # Get the Changes cog
@@ -1712,6 +1720,7 @@ class MemberSelectView(discord.ui.View):
         self.selected_alliance_id = None
         self.alliances = None
         self.is_remove_operation = is_remove_operation
+        self.context = "remove" if is_remove_operation else "transfer"
         self.update_select_menu()
 
     def update_select_menu(self):
