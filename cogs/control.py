@@ -129,7 +129,7 @@ class Control(commands.Cog):
             self.logger.error(f"Failed to remove invalid FID {fid}: {str(e)}")
             return False, None
 
-    async def check_agslist(self, channel, alliance_id, interaction=None):
+    async def check_agslist(self, channel, alliance_id, interaction=None, interaction_message=None, alliance_name=None, is_batch=False, batch_info=None):
         async with self.db_lock:
             self.cursor_users.execute("SELECT fid, nickname, furnace_lv, stove_lv_content, kid FROM users WHERE alliance = ?", (alliance_id,))
             users = self.cursor_users.fetchall()
@@ -141,10 +141,49 @@ class Control(commands.Cog):
         checked_users = 0
 
         self.cursor_alliance.execute("SELECT name FROM alliance_list WHERE alliance_id = ?", (alliance_id,))
-        alliance_name = self.cursor_alliance.fetchone()[0]
+        alliance_name_from_db = self.cursor_alliance.fetchone()[0]
+        # Use provided name if available, otherwise use from database
+        if not alliance_name:
+            alliance_name = alliance_name_from_db
 
         start_time = datetime.now()
         self.logger.info(f"{alliance_name} Alliance Control started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Update ephemeral message at start if provided
+        if interaction_message:
+            try:
+                if is_batch and batch_info:
+                    # For batch processing (all alliances)
+                    status_embed = discord.Embed(
+                        title="🔄 Alliance Control Operation",
+                        description=(
+                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"📊 **Type:** All Alliances ({batch_info['total']} total)\n"
+                            f"🏰 **Currently Processing:** {alliance_name}\n"
+                            f"📍 **Progress:** {batch_info['current']}/{batch_info['total']} alliances\n"
+                            f"⏰ **Started:** <t:{int(start_time.timestamp())}:R>\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━"
+                        ),
+                        color=discord.Color.blue()
+                    )
+                else:
+                    # For single alliance processing
+                    status_embed = discord.Embed(
+                        title="🔄 Alliance Control Operation",
+                        description=(
+                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"📊 **Type:** Single Alliance\n"
+                            f"🏰 **Alliance:** {alliance_name}\n"
+                            f"📍 **Status:** In Progress\n"
+                            f"⏰ **Started:** <t:{int(start_time.timestamp())}:R>\n"
+                            f"📢 **Results Channel:** {channel.mention}\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━"
+                        ),
+                        color=discord.Color.blue()
+                    )
+                await interaction_message.edit(embed=status_embed)
+            except Exception as e:
+                self.logger.warning(f"Could not update interaction message at start: {e}")
         
         async with self.db_lock:
             with sqlite3.connect('db/settings.sqlite') as settings_db:
@@ -354,6 +393,62 @@ class Control(commands.Cog):
             await message.edit(embed=embed)
         self.logger.info(f"{alliance_name} Alliance Control completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
         self.logger.info(f"{alliance_name} Alliance Total Duration: {duration}")
+        
+        # Update ephemeral message at completion if provided
+        if interaction_message:
+            try:
+                changes_detected = bool(furnace_changes or nickname_changes or kid_changes or check_fail_list)
+                
+                if is_batch and batch_info:
+                    # Check if this is the last alliance in the batch
+                    if batch_info['current'] == batch_info['total']:
+                        # Final completion message for all alliances
+                        status_embed = discord.Embed(
+                            title="✅ Alliance Control Complete",
+                            description=(
+                                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"📊 **Type:** All Alliances ({batch_info['total']} total)\n"
+                                f"🏰 **Alliances:** {batch_info['total']} processed\n"
+                                f"✅ **Status:** Completed\n"
+                                f"📈 **Latest Alliance:** {alliance_name}\n"
+                                f"⏱️ **Duration:** {duration.total_seconds():.1f} seconds\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━"
+                            ),
+                            color=discord.Color.green()
+                        )
+                    else:
+                        # Still processing other alliances - just update progress
+                        status_embed = discord.Embed(
+                            title="🔄 Alliance Control Operation",
+                            description=(
+                                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                                f"📊 **Type:** All Alliances ({batch_info['total']} total)\n"
+                                f"🏰 **Completed:** {alliance_name}\n"
+                                f"📍 **Progress:** {batch_info['current']}/{batch_info['total']} alliances\n"
+                                f"📈 **Changes in {alliance_name}:** {'Yes' if changes_detected else 'No'}\n"
+                                "━━━━━━━━━━━━━━━━━━━━━━"
+                            ),
+                            color=discord.Color.blue()
+                        )
+                else:
+                    # Single alliance completion
+                    status_embed = discord.Embed(
+                        title="✅ Alliance Control Complete",
+                        description=(
+                            "━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"📊 **Type:** Single Alliance\n"
+                            f"🏰 **Alliance:** {alliance_name}\n"
+                            f"✅ **Status:** Completed\n"
+                            f"📈 **Changes Detected:** {'Yes' if changes_detected else 'No'}\n"
+                            f"⏱️ **Duration:** {duration.total_seconds():.1f} seconds\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━"
+                        ),
+                        color=discord.Color.green()
+                    )
+                
+                await interaction_message.edit(embed=status_embed)
+            except Exception as e:
+                self.logger.warning(f"Could not update interaction message at completion: {e}")
 
     async def send_embed(self, channel, title, description, color, footer):
         if isinstance(description, str):
@@ -418,8 +513,8 @@ class Control(commands.Cog):
 
                     await self.login_handler.queue_operation({
                         'type': 'alliance_control',
-                        'callback': lambda ch=channel, aid=alliance_id: self.check_agslist(ch, aid),
-                        'description': f'Control check for alliance {alliance_id}',
+                        'callback': lambda ch=channel, aid=alliance_id: self.check_agslist(ch, aid, interaction_message=None),
+                        'description': f'Scheduled control check for alliance {alliance_id}',
                         'alliance_id': alliance_id
                     })
                     
