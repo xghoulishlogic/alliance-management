@@ -16,12 +16,13 @@ Starting with `v1.3.0`, the bot uses a custom ONNX model for gift code redemptio
 | Memory        | 200 MB Free RAM                             | 1 GB for smoother operation                   |
 | Disk Space    | 400-500MB (including all required packages)             | 500MB+ on SSD for faster OCR performance                |
 | GPU           | None                                        | None                                          |
-| Python        | 3.9                                         | 3.12+                                |
+| Python        | 3.9 (64-bit version required)               | 3.12+                                |
 
  - If you run your bot non-interactively, for example as a systemd service on Linux, you should run `--autoupdate` to prevent the bot from using the interactive update prompt.
 
-- ⚠️ If you run your bot on Windows, there is a known issue with onnxruntime + an outdated Visual C++ library. To overcome this, install [the latest version of Visual C++](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170) and then run `main.py` again.
+- ⚠️ If you run your bot on Windows, there is a known issue with onnxruntime + an outdated Visual C++ library. To overcome this, install [the latest version of Visual C++](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170) in both 32-bit and 64-bit variants, and then run `main.py` again.
 
+- ⚠️ There is an additional known issue on Windows running 32-bit Python where some libraries like matplotlib will fail to install. These libraries do not have 32-bit support and require installing 64-bit Python instead. Once the 64-bit version is installed, make sure to delete the existing `bot_venv` folder before having the bot re-create it on startup.
 
 ## ☁️ Hosting Providers
 
