@@ -895,7 +895,7 @@ class MemberListView(discord.ui.View):
         await self.update_page(interaction)
 
     async def search_callback(self, interaction: discord.Interaction):
-        modal = FurnaceHistoryFIDSearchModal(self.cog)
+        modal = FurnaceHistoryIDSearchModal(self.cog)
         await interaction.response.send_modal(modal)
 
     async def update_page(self, interaction: discord.Interaction):
@@ -915,7 +915,7 @@ class MemberListView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-class FurnaceHistoryFIDSearchModal(discord.ui.Modal, title="Search by ID"):
+class FurnaceHistoryIDSearchModal(discord.ui.Modal, title="Search by ID"):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
@@ -940,7 +940,7 @@ class FurnaceHistoryFIDSearchModal(discord.ui.Modal, title="Search by ID"):
                 ephemeral=True
             )
         except Exception as e:
-            print(f"Error in FurnaceHistoryFIDSearchModal on_submit: {e}")
+            print(f"Error in FurnaceHistoryIDSearchModal on_submit: {e}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "❌ An error occurred while searching for the player.",
@@ -1121,7 +1121,7 @@ class MemberListViewNickname(discord.ui.View):
         await self.update_page(interaction)
 
     async def search_callback(self, interaction: discord.Interaction):
-        modal = NicknameHistoryFIDSearchModal(self.cog)
+        modal = NicknameHistoryIDSearchModal(self.cog)
         await interaction.response.send_modal(modal)
 
     async def update_page(self, interaction: discord.Interaction):
@@ -1141,7 +1141,7 @@ class MemberListViewNickname(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-class NicknameHistoryFIDSearchModal(discord.ui.Modal, title="Search by ID"):
+class NicknameHistoryIDSearchModal(discord.ui.Modal, title="Search by ID"):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
@@ -1166,7 +1166,7 @@ class NicknameHistoryFIDSearchModal(discord.ui.Modal, title="Search by ID"):
                 ephemeral=True
             )
         except Exception as e:
-            print(f"Error in NicknameHistoryFIDSearchModal on_submit: {e}")
+            print(f"Error in NicknameHistoryIDSearchModal on_submit: {e}")
             if not interaction.response.is_done():
                 await interaction.response.send_message(
                     "❌ An error occurred while searching for the player.",
