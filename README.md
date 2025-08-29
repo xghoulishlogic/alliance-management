@@ -22,7 +22,6 @@ Starting with `v1.3.0`, the bot uses a custom ONNX model for gift code redemptio
 
 - ⚠️ If you run your bot on Windows, there is a known issue with onnxruntime + an outdated Visual C++ library. To overcome this, install [the latest version of Visual C++](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170) and then run `main.py` again.
 
-
 ## ☁️ Hosting Providers
 
 **⚠️ This is a self-hosted bot!** That means you will need to run the bot somewhere. You could do this on your own PC if you like, but then it will stop running if you shut the PC down. Luckily there are some other hosting options available which you can find on [our Discord server](https://discord.gg/apYByj6K2m) under the `#host-setup` channel, many of which are free.
