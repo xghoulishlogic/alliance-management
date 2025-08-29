@@ -215,7 +215,7 @@ class LoginHandler:
         Fetch player login data (nickname, furnace level, kid, etc.)
         
         Args:
-            fid: Player FID
+            fid: Player ID
             use_proxy: Optional proxy URL for fallback
             
         Returns:
@@ -319,7 +319,7 @@ class LoginHandler:
                         }
                         
         except Exception as e:
-            self.log_message(f"Error fetching player data for FID {fid}: {str(e)}")
+            self.log_message(f"Error fetching player data for ID {fid}: {str(e)}")
             return {
                 'status': 'error',
                 'data': None,
@@ -333,7 +333,7 @@ class LoginHandler:
         Fetch multiple players efficiently with progress updates
         
         Args:
-            fids: List of player FIDs
+            fids: List of player IDs
             progress_callback: async function(current, total, status_msg)
             alliance_id: Alliance ID for locking (optional)
             

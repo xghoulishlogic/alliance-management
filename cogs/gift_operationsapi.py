@@ -561,9 +561,9 @@ class GiftCodeAPI:
                 gift_operations = self.bot.get_cog('GiftOperations')
                 if gift_operations and hasattr(gift_operations, 'get_test_fid'):
                     test_fid = gift_operations.get_test_fid()
-                    self.logger.info(f"Using configured test FID: {test_fid}")
+                    self.logger.info(f"Using configured test ID: {test_fid}")
             except Exception as e:
-                self.logger.warning(f"Error getting test FID: {e}. Using default: {test_fid}")
+                self.logger.warning(f"Error getting test ID: {e}. Using default: {test_fid}")
             
             self.logger.info(f"Validating {len(codes)} stored gift codes")
             validated_count = 0

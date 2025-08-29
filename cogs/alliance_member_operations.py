@@ -398,8 +398,8 @@ class AllianceMemberOperations(commands.Cog):
                                                             f"**Total Members Removed:** {len(removed_members)}\n\n"
                                                             "**Removed Members:**\n"
                                                             "```\n" + 
-                                                            "\n".join([f"FID{idx+1}: {fid}" for idx, (fid, _) in enumerate(removed_members[:20])]) +
-                                                            (f"\n... ve {len(removed_members) - 20} FID more" if len(removed_members) > 20 else "") +
+                                                            "\n".join([f"ID{idx+1}: {fid}" for idx, (fid, _) in enumerate(removed_members[:20])]) +
+                                                            (f"\n... ve {len(removed_members) - 20} ID more" if len(removed_members) > 20 else "") +
                                                             "\n```"
                                                         ),
                                                         color=discord.Color.red()
@@ -467,7 +467,7 @@ class AllianceMemberOperations(commands.Cog):
                                                         f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                                                         f"**Removed Member:**\n"
                                                         f"👤 **Name:** {nickname}\n"
-                                                        f"🆔 **FID:** {selected_fid}"
+                                                        f"🆔 **ID:** {selected_fid}"
                                                     ),
                                                     color=discord.Color.red()
                                                 )
@@ -794,7 +794,7 @@ class AllianceMemberOperations(commands.Cog):
                                     "Select the member to transfer:\n\n"
                                     "**Selection Methods**\n"
                                     "1️⃣ Select member from menu below\n"
-                                    "2️⃣ Click 'Select by FID' button and enter FID\n"
+                                    "2️⃣ Click 'Select by ID' button and enter ID\n"
                                     "━━━━━━━━━━━━━━━━━━━━━━"
                                 ),
                                 color=discord.Color.blue()
@@ -859,7 +859,7 @@ class AllianceMemberOperations(commands.Cog):
                                             title="✅ Transfer Successful",
                                             description=(
                                                 f"👤 **Member:** {selected_member_name}\n"
-                                                f"🆔 **FID:** {selected_fid}\n"
+                                                f"🆔 **ID:** {selected_fid}\n"
                                                 f"📤 **Source:** {source_alliance_name}\n"
                                                 f"📥 **Target:** {target_alliance_name}"
                                             ),
@@ -987,13 +987,13 @@ class AllianceMemberOperations(commands.Cog):
 
     async def _process_add_user(self, interaction: discord.Interaction, alliance_id: str, alliance_name: str, ids: str):
         """Process the actual user addition operation"""
-        # Handle both comma-separated and newline-separated FIDs
+        # Handle both comma-separated and newline-separated IDs
         if '\n' in ids:
             ids_list = [fid.strip() for fid in ids.split('\n') if fid.strip()]
         else:
             ids_list = [fid.strip() for fid in ids.split(",") if fid.strip()]
 
-        # Pre-check which FIDs already exist in the database
+        # Pre-check which IDs already exist in the database
         already_in_db = []
         fids_to_process = []
         
@@ -1081,7 +1081,7 @@ class AllianceMemberOperations(commands.Cog):
                 log_file.write(f"Date: {timestamp}\n")
                 log_file.write(f"Administrator: {interaction.user.name} (ID: {interaction.user.id})\n")
                 log_file.write(f"Alliance: {alliance_name} (ID: {alliance_id})\n")
-                log_file.write(f"FIDs to Process: {ids.replace(chr(10), ', ')}\n")
+                log_file.write(f"IDs to Process: {ids.replace(chr(10), ', ')}\n")
                 log_file.write(f"Total Members to Process: {total_users}\n")
                 log_file.write(f"API Mode: {self.login_handler.get_mode_text()}\n")
                 log_file.write(f"Available APIs: {self.login_handler.available_apis}\n")
@@ -1113,7 +1113,7 @@ class AllianceMemberOperations(commands.Cog):
                     result = await self.login_handler.fetch_player_data(fid)
                     
                     with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                        log_file.write(f"\nAPI Response for FID {fid}:\n")
+                        log_file.write(f"\nAPI Response for ID {fid}:\n")
                         log_file.write(f"Status: {result['status']}\n")
                         if result.get('api_used'):
                             log_file.write(f"API Used: {result['api_used']}\n")
@@ -1153,7 +1153,7 @@ class AllianceMemberOperations(commands.Cog):
                         kid = data.get('kid', None)
 
                         if nickname:
-                            try: # Since we pre-filtered, this FID should not exist in database
+                            try: # Since we pre-filtered, this ID should not exist in database
                                 self.c_users.execute("""
                                     INSERT INTO users (fid, nickname, furnace_lv, kid, stove_lv_content, alliance)
                                     VALUES (?, ?, ?, ?, ?, ?)
@@ -1161,7 +1161,7 @@ class AllianceMemberOperations(commands.Cog):
                                 self.conn_users.commit()
                                 
                                 with open(self.log_file, 'a', encoding='utf-8') as f:
-                                    f.write(f"[{timestamp}] Successfully added member - FID: {fid}, Nickname: {nickname}, Level: {furnace_lv}\n")
+                                    f.write(f"[{timestamp}] Successfully added member - ID: {fid}, Nickname: {nickname}, Level: {furnace_lv}\n")
                                 
                                 added_count += 1
                                 added_users.append((fid, nickname))
@@ -1178,7 +1178,7 @@ class AllianceMemberOperations(commands.Cog):
                             except sqlite3.IntegrityError as e:
                                 # This shouldn't happen since we pre-filtered, but handle it just in case
                                 with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                    log_file.write(f"ERROR: Member already exists (race condition?) - FID {fid}: {str(e)}\n")
+                                    log_file.write(f"ERROR: Member already exists (race condition?) - ID {fid}: {str(e)}\n")
                                 already_exists_count += 1
                                 already_exists_users.append((fid, nickname))
                                 
@@ -1193,7 +1193,7 @@ class AllianceMemberOperations(commands.Cog):
                                 
                             except Exception as e:
                                 with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                    log_file.write(f"ERROR: Database error for FID {fid}: {str(e)}\n")
+                                    log_file.write(f"ERROR: Database error for ID {fid}: {str(e)}\n")
                                 error_count += 1
                                 error_users.append(fid)
                                 
@@ -1213,7 +1213,7 @@ class AllianceMemberOperations(commands.Cog):
                             # Handle other error statuses
                             error_msg = result.get('error_message', 'Unknown error')
                             with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                                log_file.write(f"ERROR: {error_msg} for FID {fid}\n")
+                                log_file.write(f"ERROR: {error_msg} for ID {fid}\n")
                             error_count += 1
                             if fid not in error_users:
                                 error_users.append(fid)
@@ -1230,7 +1230,7 @@ class AllianceMemberOperations(commands.Cog):
 
                 except Exception as e:
                     with open(log_file_path, 'a', encoding='utf-8') as log_file:
-                        log_file.write(f"ERROR: Request failed for FID {fid}: {str(e)}\n")
+                        log_file.write(f"ERROR: Request failed for ID {fid}: {str(e)}\n")
                         error_count += 1
                         error_users.append(fid)
                         await message.edit(embed=embed)
@@ -1277,7 +1277,7 @@ class AllianceMemberOperations(commands.Cog):
                                 f"✅ Successfully Added: {added_count}\n"
                                 f"❌ Failed: {error_count}\n"
                                 f"⚠️ Already Exists: {already_exists_count}\n\n"
-                                "**Added FIDs:**\n"
+                                "**Added IDs:**\n"
                                 f"```\n{', '.join(ids_list)}\n```"
                             ),
                             color=discord.Color.green()
@@ -1442,7 +1442,7 @@ class AddMemberModal(discord.ui.Modal):
         super().__init__(title="Add Member")
         self.alliance_id = alliance_id
         self.add_item(discord.ui.TextInput(
-            label="Enter FIDs (comma or newline separated)", 
+            label="Enter IDs (comma or newline separated)", 
             placeholder="Comma: 12345,67890,54321\nNewline:\n12345\n67890\n54321",
             style=discord.TextStyle.paragraph
         ))
@@ -1523,13 +1523,13 @@ class AllianceSelectView(discord.ui.View):
         self.update_select_menu()
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Select by FID", emoji="🔍", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Select by ID", emoji="🔍", style=discord.ButtonStyle.secondary)
     async def fid_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             if self.current_select and self.current_select.values:
                 self.selected_alliance_id = self.current_select.values[0]
             
-            modal = FIDSearchModal(
+            modal = IDSearchModal(
                 selected_alliance_id=self.selected_alliance_id,
                 alliances=self.alliances,
                 callback=self.callback,
@@ -1538,15 +1538,15 @@ class AllianceSelectView(discord.ui.View):
             )
             await interaction.response.send_modal(modal)
         except Exception as e:
-            print(f"FID button error: {e}")
+            print(f"ID button error: {e}")
             await interaction.response.send_message(
                 "❌ An error has occurred. Please try again.",
                 ephemeral=True
             )
 
-class FIDSearchModal(discord.ui.Modal):
+class IDSearchModal(discord.ui.Modal):
     def __init__(self, selected_alliance_id=None, alliances=None, callback=None, context="transfer", cog=None):
-        super().__init__(title="Search Members with FID")
+        super().__init__(title="Search Members with ID")
         self.selected_alliance_id = selected_alliance_id
         self.alliances = alliances
         self.callback = callback
@@ -1565,10 +1565,10 @@ class FIDSearchModal(discord.ui.Modal):
         try:
             fid = self.children[0].value.strip()
             
-            # Validate FID input
+            # Validate ID input
             if not fid:
                 await interaction.response.send_message(
-                    "❌ Please enter a valid FID.",
+                    "❌ Please enter a valid ID.",
                     ephemeral=True
                 )
                 return
@@ -1602,7 +1602,7 @@ class FIDSearchModal(discord.ui.Modal):
                 
                 if not user_result:
                     await interaction.response.send_message(
-                        "❌ No member with this FID was found.",
+                        "❌ No member with this ID was found.",
                         ephemeral=True
                     )
                     return
@@ -1619,7 +1619,7 @@ class FIDSearchModal(discord.ui.Modal):
                     description=(
                         f"**Member Information:**\n"
                         f"👤 **Name:** {nickname}\n"
-                        f"🆔 **FID:** {fid}\n"
+                        f"🆔 **ID:** {fid}\n"
                         f"⚔️ **Level:** {furnace_lv}\n"
                         f"🏰 **Current Alliance:** {current_alliance_name}\n\n"
                         "**Transfer Process**\n"
@@ -1667,7 +1667,7 @@ class FIDSearchModal(discord.ui.Modal):
                             title="✅ Transfer Successful",
                             description=(
                                 f"👤 **Member:** {nickname}\n"
-                                f"🆔 **FID:** {fid}\n"
+                                f"🆔 **ID:** {fid}\n"
                                 f"📤 **Source:** {current_alliance_name}\n"
                                 f"📥 **Target:** {target_alliance_name}"
                             ),
@@ -1747,7 +1747,7 @@ class MemberSelectView(discord.ui.View):
             discord.SelectOption(
                 label=f"{nickname[:50]}",
                 value=str(fid),
-                description=f"FID: {fid} | FC: {self.cog.level_mapping.get(furnace_lv, str(furnace_lv))}",
+                description=f"ID: {fid} | FC: {self.cog.level_mapping.get(furnace_lv, str(furnace_lv))}",
                 emoji="👤"
             ) for fid, nickname, furnace_lv in current_members[:remaining_slots]
         ]
@@ -1787,14 +1787,14 @@ class MemberSelectView(discord.ui.View):
         self.update_select_menu()
         await interaction.response.edit_message(view=self)
 
-    @discord.ui.button(label="Select by FID", emoji="🔍", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="Select by ID", emoji="🔍", style=discord.ButtonStyle.secondary)
     async def fid_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             
             if self.current_select and self.current_select.values:
                 self.selected_alliance_id = self.current_select.values[0]
             
-            modal = FIDSearchModal(
+            modal = IDSearchModal(
                 selected_alliance_id=self.selected_alliance_id,
                 alliances=self.alliances,
                 callback=self.callback,
@@ -1803,7 +1803,7 @@ class MemberSelectView(discord.ui.View):
             )
             await interaction.response.send_modal(modal)
         except Exception as e:
-            print(f"FID button error: {e}")
+            print(f"ID button error: {e}")
             await interaction.response.send_message(
                 "❌ An error has occurred. Please try again.",
                 ephemeral=True

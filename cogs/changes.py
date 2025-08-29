@@ -176,7 +176,7 @@ class Changes(commands.Cog):
                 title=f"🔥 Furnace Level History",
                 description=(
                     f"**Player:** `{nickname}`\n"
-                    f"**FID:** `{fid}`\n"
+                    f"**ID:** `{fid}`\n"
                     f"**Current Level:** `{self.level_mapping.get(current_level, str(current_level))}`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                 ),
@@ -230,7 +230,7 @@ class Changes(commands.Cog):
                 title=f"📝 Nickname History",
                 description=(
                     f"**Player:** `{nickname}`\n"
-                    f"**FID:** `{fid}`\n"
+                    f"**ID:** `{fid}`\n"
                     f"**Current Level:** `{self.level_mapping.get(current_level, str(current_level))}`\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
                 ),
@@ -749,7 +749,7 @@ class MemberListView(discord.ui.View):
                 discord.SelectOption(
                     label=f"{name}",
                     value=str(fid),
-                    description=f"FID: {fid} | Level: {self.cog.level_mapping.get(furnace_lv, str(furnace_lv))}"
+                    description=f"ID: {fid} | Level: {self.cog.level_mapping.get(furnace_lv, str(furnace_lv))}"
                 ) for fid, name, furnace_lv in current_members
             ],
             row=0
@@ -830,7 +830,7 @@ class MemberListView(discord.ui.View):
             self.add_item(next_button)
 
         search_button = discord.ui.Button(
-            label="Search by FID",
+            label="Search by ID",
             emoji="🔍",
             style=discord.ButtonStyle.primary,
             custom_id="search_fid",
@@ -915,13 +915,13 @@ class MemberListView(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-class FurnaceHistoryFIDSearchModal(discord.ui.Modal, title="Search by FID"):
+class FurnaceHistoryFIDSearchModal(discord.ui.Modal, title="Search by ID"):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
         self.fid = discord.ui.TextInput(
-            label="FID",
-            placeholder="Enter FID number...",
+            label="ID",
+            placeholder="Enter ID number...",
             required=True,
             min_length=1,
             max_length=20
@@ -936,7 +936,7 @@ class FurnaceHistoryFIDSearchModal(discord.ui.Modal, title="Search by FID"):
                 
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid FID format. Please enter a valid number.",
+                "❌ Invalid ID format. Please enter a valid number.",
                 ephemeral=True
             )
         except Exception as e:
@@ -975,7 +975,7 @@ class MemberListViewNickname(discord.ui.View):
                 discord.SelectOption(
                     label=f"{name}",
                     value=str(fid),
-                    description=f"FID: {fid} | Level: {self.cog.level_mapping.get(furnace_lv, str(furnace_lv))}"
+                    description=f"ID: {fid} | Level: {self.cog.level_mapping.get(furnace_lv, str(furnace_lv))}"
                 ) for fid, name, furnace_lv in current_members
             ],
             row=0
@@ -1056,7 +1056,7 @@ class MemberListViewNickname(discord.ui.View):
             self.add_item(next_button)
 
         search_button = discord.ui.Button(
-            label="Search by FID",
+            label="Search by ID",
             emoji="🔍",
             style=discord.ButtonStyle.primary,
             custom_id="search_fid_nick",
@@ -1141,13 +1141,13 @@ class MemberListViewNickname(discord.ui.View):
 
         await interaction.response.edit_message(embed=embed, view=self)
 
-class NicknameHistoryFIDSearchModal(discord.ui.Modal, title="Search by FID"):
+class NicknameHistoryFIDSearchModal(discord.ui.Modal, title="Search by ID"):
     def __init__(self, cog):
         super().__init__()
         self.cog = cog
         self.fid = discord.ui.TextInput(
-            label="FID",
-            placeholder="Enter FID number...",
+            label="ID",
+            placeholder="Enter ID number...",
             required=True,
             min_length=1,
             max_length=20
@@ -1162,7 +1162,7 @@ class NicknameHistoryFIDSearchModal(discord.ui.Modal, title="Search by FID"):
                 
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid FID format. Please enter a valid number.",
+                "❌ Invalid ID format. Please enter a valid number.",
                 ephemeral=True
             )
         except Exception as e:
@@ -1247,7 +1247,7 @@ class RecentChangesView(discord.ui.View):
             old_level = self.level_mapping.get(int(old_value), str(old_value))
             new_level = self.level_mapping.get(int(new_value), str(new_value))
             embed.add_field(
-                name=f"{self.members[fid]} (FID: {fid})",
+                name=f"{self.members[fid]} (ID: {fid})",
                 value=f"```{old_level} ➜ {new_level}\nTime: {timestamp}```",
                 inline=False
             )
@@ -1300,7 +1300,7 @@ class RecentNicknameChangesView(discord.ui.View):
 
         for fid, old_name, new_name, timestamp in self.chunks[self.current_page]:
             embed.add_field(
-                name=f"{self.members[fid]} (FID: {fid})",
+                name=f"{self.members[fid]} (ID: {fid})",
                 value=f"```{old_name} ➜ {new_name}\nTime: {timestamp}```",
                 inline=False
             )

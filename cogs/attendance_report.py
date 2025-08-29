@@ -159,12 +159,12 @@ class AttendanceReport(commands.Cog):
         writer.writerow([])
         
         # Write headers
-        writer.writerow(['FID', 'Nickname', 'Status', 'Points', 'Last Event Attendance', 'Marked By'])
+        writer.writerow(['ID', 'Nickname', 'Status', 'Points', 'Last Event Attendance', 'Marked By'])
         
         # Write data
         for record in records:
             writer.writerow([
-                record[0],  # FID
+                record[0],  # ID
                 record[1],  # Nickname
                 record[2].replace('_', ' ').title(),  # Status
                 record[3] if record[3] else 0,  # Points
@@ -193,12 +193,12 @@ class AttendanceReport(commands.Cog):
         writer.writerow([])  # Empty row
         
         # Write headers
-        writer.writerow(['FID', 'Nickname', 'Status', 'Points', 'Last Event Attendance', 'Marked By'])
+        writer.writerow(['ID', 'Nickname', 'Status', 'Points', 'Last Event Attendance', 'Marked By'])
         
         # Write data
         for record in records:
             writer.writerow([
-                record[0],  # FID
+                record[0],  # ID
                 record[1],  # Nickname
                 record[2].replace('_', ' ').title(),  # Status
                 record[3] if record[3] else 0,  # Points
@@ -291,7 +291,7 @@ class AttendanceReport(commands.Cog):
     <table>
         <thead>
             <tr>
-                <th>FID</th>
+                <th>ID</th>
                 <th>Nickname</th>
                 <th>Status</th>
                 <th>Points</th>
@@ -960,7 +960,7 @@ class AttendanceReport(commands.Cog):
                 
                 points_display = f"{points:,}" if points > 0 else "0"
                 
-                player_line = f"{status_emoji} **{nickname}** (FID: {fid})"
+                player_line = f"{status_emoji} **{nickname}** (ID: {fid})"
                 if points > 0:
                     player_line += f" | **{points_display}** points"
                 if last_event_attendance != "N/A":

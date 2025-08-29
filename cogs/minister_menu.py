@@ -15,8 +15,8 @@ class UserFilterModal(discord.ui.Modal, title="Filter Users"):
         self.parent_view = parent_view
         
         self.filter_input = discord.ui.TextInput(
-            label="Filter by FID or Name",
-            placeholder="Enter FID or nickname (partial match supported)",
+            label="Filter by ID or Name",
+            placeholder="Enter ID or nickname (partial match supported)",
             required=False,
             max_length=100,
             default=self.parent_view.filter_text
@@ -44,7 +44,7 @@ class FilteredUserSelectView(discord.ui.View):
         self.filtered_users = self.users.copy()
         self.max_page = (len(self.filtered_users) - 1) // 25 if self.filtered_users else 0
         
-        # Get list of FIDs that are already booked for this activity
+        # Get list of IDs that are already booked for this activity
         self.booked_fids = {fid for time, (fid, alliance) in self.booked_times.items() if fid}
         
         self.update_select_menu()
@@ -59,7 +59,7 @@ class FilteredUserSelectView(discord.ui.View):
             self.filtered_users = []
             
             for fid, nickname, alliance_id in self.users:
-                # Check if filter matches FID or nickname (partial, case-insensitive)
+                # Check if filter matches ID or nickname (partial, case-insensitive)
                 if filter_lower in str(fid).lower() or filter_lower in nickname.lower():
                     self.filtered_users.append((fid, nickname, alliance_id))
         
@@ -897,7 +897,7 @@ class MinisterMenu(commands.Cog):
                 else:
                     failed_count += 1
             except Exception as e:
-                print(f"Error updating nickname for FID {fid}: {e}")
+                print(f"Error updating nickname for ID {fid}: {e}")
                 failed_count += 1
         
         # Show result

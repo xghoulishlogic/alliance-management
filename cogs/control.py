@@ -107,7 +107,7 @@ class Control(commands.Cog):
             return {'error': result.get('error_message', 'Unknown error'), 'fid': fid}
 
     async def remove_invalid_fid(self, fid: str, reason: str):
-        """Safely remove an invalid FID from the database with logging"""
+        """Safely remove an invalid ID from the database with logging"""
         try:
             async with self.db_lock:
                 # Get user info before deletion for logging
@@ -122,11 +122,11 @@ class Control(commands.Cog):
                     self.conn_users.commit()
                     
                     # Log the deletion to alliance control log
-                    self.logger.warning(f"[AUTO-CLEANUP] Removed invalid FID {fid} (nickname: {nickname}) - Reason: {reason}")
+                    self.logger.warning(f"[AUTO-CLEANUP] Removed invalid ID {fid} (nickname: {nickname}) - Reason: {reason}")
                     
                     return True, nickname
         except Exception as e:
-            self.logger.error(f"Failed to remove invalid FID {fid}: {str(e)}")
+            self.logger.error(f"Failed to remove invalid ID {fid}: {str(e)}")
             return False, None
 
     async def check_agslist(self, channel, alliance_id, interaction=None, interaction_message=None, alliance_name=None, is_batch=False, batch_info=None):
@@ -248,9 +248,9 @@ class Control(commands.Cog):
                         # Handle error responses (including 40004)
                         error_msg = data.get('error', 'Unknown error')
                         
-                        # Check if this is a permanently invalid FID (not found)
+                        # Check if this is a permanently invalid ID (not found)
                         if error_msg == 'not_found':
-                            # Auto-remove the invalid FID
+                            # Auto-remove the invalid ID
                             removed, old_nickname = await self.remove_invalid_fid(fid, "Player does not exist (error 40004)")
                             if removed:
                                 check_fail_list.append(f"❌ `{fid}` ({old_nickname}) - Player not found (Auto-removed)")
@@ -259,7 +259,7 @@ class Control(commands.Cog):
                         else:
                             # For other errors, just report without removing
                             check_fail_list.append(f"❌ `{fid}` - {error_msg}")
-                            self.logger.warning(f"Failed to check FID {fid}: {error_msg}")
+                            self.logger.warning(f"Failed to check ID {fid}: {error_msg}")
                         
                         checked_users += 1
                     elif 'data' in data:
@@ -372,7 +372,7 @@ class Control(commands.Cog):
             )
             embed.add_field(
                 name="📈 Total Changes",
-                value=f"🔄 {len(furnace_changes) + len(nickname_changes) + len(kid_changes)} changes detected" + (f"\n🗑️ {sum(1 for item in check_fail_list if 'Auto-removed' in item)} invalid FIDs removed" if any('Auto-removed' in item for item in check_fail_list) else "") + (f"\n❌ {sum(1 for item in check_fail_list if 'Auto-removed' not in item)} check failures" if any('Auto-removed' not in item for item in check_fail_list) else ""),
+                value=f"🔄 {len(furnace_changes) + len(nickname_changes) + len(kid_changes)} changes detected" + (f"\n🗑️ {sum(1 for item in check_fail_list if 'Auto-removed' in item)} invalid IDs removed" if any('Auto-removed' in item for item in check_fail_list) else "") + (f"\n❌ {sum(1 for item in check_fail_list if 'Auto-removed' not in item)} check failures" if any('Auto-removed' not in item for item in check_fail_list) else ""),
                 inline=True
             )
         else:
@@ -597,8 +597,6 @@ class Control(commands.Cog):
     @tasks.loop(minutes=1)
     async def monitor_alliance_changes(self):
         try:
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
             async with self.db_lock:
                 self.cursor_alliance.execute("SELECT alliance_id, channel_id, interval FROM alliancesettings")
                 current_settings = {

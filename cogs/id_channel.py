@@ -188,7 +188,7 @@ class IDChannel(commands.Cog):
                 if existing_alliance:
                     if existing_alliance[0] == alliance_id:
                         await message.add_reaction('⚠️')
-                        await message.reply(f"This FID ({fid}) is already registered in this alliance!", delete_after=10)
+                        await message.reply(f"This ID ({fid}) is already registered in this alliance!", delete_after=10)
                         return
                     else:
                         with sqlite3.connect('db/alliance.sqlite') as alliance_db:
@@ -198,7 +198,7 @@ class IDChannel(commands.Cog):
                         
                         await message.add_reaction('⚠️')
                         await message.reply(
-                            f"This FID ({fid}) is already registered in another alliance: `{alliance_name[0] if alliance_name else 'Unknown Alliance'}`",
+                            f"This ID ({fid}) is already registered in another alliance: `{alliance_name[0] if alliance_name else 'Unknown Alliance'}`",
                             delete_after=10
                         )
                         return
@@ -256,7 +256,7 @@ class IDChannel(commands.Cog):
                                             cursor.execute("SELECT alliance FROM users WHERE fid = ?", (fid,))
                                             if cursor.fetchone():
                                                 await message.add_reaction('⚠️')
-                                                await message.reply(f"This FID ({fid}) was added by another process!", delete_after=10)
+                                                await message.reply(f"This ID ({fid}) was added by another process!", delete_after=10)
                                                 return
                                                 
                                             cursor.execute("""
@@ -266,7 +266,7 @@ class IDChannel(commands.Cog):
                                             users_db.commit()
                                     except sqlite3.IntegrityError:
                                         await message.add_reaction('⚠️')
-                                        await message.reply(f"This FID ({fid}) was added by another process!", delete_after=10)
+                                        await message.reply(f"This ID ({fid}) was added by another process!", delete_after=10)
                                         return
 
                                     await message.add_reaction('✅')
@@ -281,7 +281,7 @@ class IDChannel(commands.Cog):
                                         description=(
                                             "━━━━━━━━━━━━━━━━━━━━━━\n"
                                             f"**👤 Name:** `{nickname}`\n"
-                                            f"**🆔 FID:** `{fid}`\n"
+                                            f"**🆔 ID:** `{fid}`\n"
                                             f"**🔥 Furnace Level:** `{furnace_level_name}`\n"
                                             f"**🌍 State:** `{kid}`\n"
                                             "━━━━━━━━━━━━━━━━━━━━━━"
@@ -310,7 +310,7 @@ class IDChannel(commands.Cog):
                                     return
                                 else:
                                     await message.add_reaction('❌')
-                                    await message.reply("No player found for this FID!", delete_after=10)
+                                    await message.reply("No player found for this ID!", delete_after=10)
                                     return
 
                 except Exception as e:
@@ -706,7 +706,7 @@ class IDChannelView(discord.ui.View):
                                     title="✅ ID Channel Created",
                                     description=f"**Channel:** {selected_channel.mention}\n"
                                               f"**Alliance:** {dict(alliances)[alliance_id]}\n\n"
-                                              f"This channel will now automatically check and add FIDs to the alliance.",
+                                              f"This channel will now automatically check and add IDs to the alliance.",
                                     color=discord.Color.green()
                                 )
                                 await channel_interaction.response.edit_message(embed=success_embed, view=None)
