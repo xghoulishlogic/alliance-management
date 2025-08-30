@@ -239,6 +239,91 @@ class Alliance(commands.Cog):
             else:
                 await interaction.followup.send(error_message, ephemeral=True)
 
+    async def show_main_menu(self, interaction: discord.Interaction):
+        """Display the main settings menu - can be called by other cogs"""
+        try:
+            embed = discord.Embed(
+                title="⚙️ Settings Menu",
+                description=(
+                    "Please select a category:\n\n"
+                    "**Menu Categories**\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "🏰 **Alliance Operations**\n"
+                    "└ Manage alliances and settings\n\n"
+                    "👥 **Alliance Member Operations**\n"
+                    "└ Add, remove, and view members\n\n"
+                    "🤖 **Bot Operations**\n"
+                    "└ Configure bot settings\n\n"
+                    "🎁 **Gift Code Operations**\n"
+                    "└ Manage gift codes and rewards\n\n"
+                    "📜 **Alliance History**\n"
+                    "└ View alliance changes and history\n\n"
+                    "🆘 **Support Operations**\n"
+                    "└ Access support features\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━"
+                ),
+                color=discord.Color.blue()
+            )
+            
+            view = discord.ui.View()
+            view.add_item(discord.ui.Button(
+                label="Alliance Operations",
+                emoji="🏰",
+                style=discord.ButtonStyle.primary,
+                custom_id="alliance_operations",
+                row=0
+            ))
+            view.add_item(discord.ui.Button(
+                label="Member Operations",
+                emoji="👥",
+                style=discord.ButtonStyle.primary,
+                custom_id="member_operations",
+                row=0
+            ))
+            view.add_item(discord.ui.Button(
+                label="Bot Operations",
+                emoji="🤖",
+                style=discord.ButtonStyle.primary,
+                custom_id="bot_operations",
+                row=1
+            ))
+            view.add_item(discord.ui.Button(
+                label="Gift Operations",
+                emoji="🎁",
+                style=discord.ButtonStyle.primary,
+                custom_id="gift_code_operations",
+                row=1
+            ))
+            view.add_item(discord.ui.Button(
+                label="Alliance History",
+                emoji="📜",
+                style=discord.ButtonStyle.primary,
+                custom_id="alliance_history",
+                row=2
+            ))
+            view.add_item(discord.ui.Button(
+                label="Support Operations",
+                emoji="🆘",
+                style=discord.ButtonStyle.primary,
+                custom_id="support_operations",
+                row=2
+            ))
+            view.add_item(discord.ui.Button(
+                label="Other Features",
+                emoji="🔧",
+                style=discord.ButtonStyle.primary,
+                custom_id="other_features",
+                row=3
+            ))
+
+            try:
+                await interaction.response.edit_message(embed=embed, view=view)
+            except discord.InteractionResponded:
+                pass
+                
+        except Exception as _:
+            pass
+
     @commands.Cog.listener()
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type == discord.InteractionType.component:
@@ -556,6 +641,9 @@ class Alliance(commands.Cog):
                 elif custom_id == "view_alliances":
                     await self.view_alliances(interaction)
 
+                elif custom_id == "main_menu":
+                    await self.show_main_menu(interaction)
+
                 elif custom_id == "support_operations":
                     try:
                         support_ops_cog = interaction.client.get_cog("SupportOperations")
@@ -630,10 +718,11 @@ class Alliance(commands.Cog):
             except Exception as e:
                 if not any(error_code in str(e) for error_code in ["10062", "40060"]):
                     print(f"Error processing interaction with custom_id '{custom_id}': {e}")
-                await interaction.response.send_message(
-                    "An error occurred while processing your request. Please try again.",
-                    ephemeral=True
-                )
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        "An error occurred while processing your request. Please try again.",
+                        ephemeral=True
+                    )
 
     async def add_alliance(self, interaction: discord.Interaction):
         if interaction.guild is None:
