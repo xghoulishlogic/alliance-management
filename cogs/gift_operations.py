@@ -9,7 +9,6 @@ from datetime import datetime
 import sqlite3
 from discord.ext import tasks
 import asyncio
-import sys
 import base64
 import re
 import os
@@ -2088,9 +2087,11 @@ class GiftOperations(commands.Cog):
                 await message.add_reaction("✅")
                 await message.reply("Gift code successfully added.", mention_author=False)
         elif status == "TIME_ERROR":
-            await self.handle_time_error(message)
+            await message.add_reaction("❌")
+            await message.reply("Gift code expired.", mention_author=False)
         elif status == "CDK_NOT_FOUND":
-            await self.handle_cdk_not_found(message)
+            await message.add_reaction("❌")
+            await message.reply("The gift code is incorrect.", mention_author=False)
         elif status == "USAGE_LIMIT":
             await message.add_reaction("❌")
             await message.reply("Usage limit has been reached for this code.", mention_author=False)
@@ -2113,25 +2114,14 @@ class GiftOperations(commands.Cog):
                 await message.add_reaction("✅")
                 await message.reply("Gift code successfully added.", mention_author=False)
         elif status == "TIME_ERROR":
-            await self.handle_time_error(message)
+            await message.add_reaction("❌")
+            await message.reply("Gift code expired.", mention_author=False)
         elif status == "CDK_NOT_FOUND":
-            await self.handle_cdk_not_found(message)
+            await message.add_reaction("❌")
+            await message.reply("The gift code is incorrect.", mention_author=False)
         elif status == "USAGE_LIMIT":
             await message.add_reaction("❌")
             await message.reply("Usage limit has been reached for this code.", mention_author=False)
-
-    async def handle_cdk_not_found(self, message):
-        await message.add_reaction("❌")
-        await message.reply("The gift code is incorrect.", mention_author=False)
-
-    async def handle_time_error(self, message):
-        await message.add_reaction("❌")
-        await message.reply("Gift code expired.", mention_author=False)
-
-    async def handle_timeout_retry(self, message, giftcode):
-        self.cursor.execute("SELECT 1 FROM gift_codes WHERE giftcode = ?", (giftcode,))
-        if not self.cursor.fetchone():
-            await message.add_reaction("⏳")
 
     async def get_admin_info(self, user_id):
         self.settings_cursor.execute("""
