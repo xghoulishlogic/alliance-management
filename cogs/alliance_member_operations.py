@@ -595,7 +595,7 @@ class AllianceMemberOperations(commands.Cog):
                         with sqlite3.connect('db/users.sqlite') as users_db:
                             cursor = users_db.cursor()
                             cursor.execute("""
-                                SELECT fid, nickname, furnace_lv
+                                SELECT fid, nickname, furnace_lv, kid
                                 FROM users 
                                 WHERE alliance = ? 
                                 ORDER BY furnace_lv DESC, nickname
@@ -637,9 +637,9 @@ class AllianceMemberOperations(commands.Cog):
                             embed = public_embed.copy()
                             
                             member_list = ""
-                            for idx, (fid, nickname, furnace_lv) in enumerate(chunk, start=page * members_per_page + 1):
+                            for idx, (fid, nickname, furnace_lv, kid) in enumerate(chunk, start=page * members_per_page + 1):
                                 level = self.cog.level_mapping.get(furnace_lv, str(furnace_lv))
-                                member_list += f"**{idx:02d}.** 👤 {nickname}\n└ ⚔️ `FC: {level}`\n\n"
+                                member_list += f"👤 {nickname}\n└ ⚔ FC: {level}\n└ 🆔 FID: {fid}\n└ 👑 State: {kid}\n\n"
 
                             embed.description += member_list
                             
