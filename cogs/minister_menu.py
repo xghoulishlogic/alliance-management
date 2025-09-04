@@ -544,7 +544,7 @@ class ChannelConfigurationView(discord.ui.View):
         )
 
 class TimeSelectView(discord.ui.View):
-    def __init__(self, bot, cog, activity_name, fid, available_times, current_time=None):
+    def __init__(self, bot, cog, activity_name, fid, available_times, current_time=None, page=0):
         super().__init__(timeout=300)
         self.bot = bot
         self.cog = cog
@@ -552,19 +552,77 @@ class TimeSelectView(discord.ui.View):
         self.fid = fid
         self.available_times = available_times
         self.current_time = current_time
+        self.page = page
+        self.max_page = (len(available_times) - 1) // 25 if available_times else 0
         
-        self.add_item(TimeSelect(available_times))
+        self.update_components()
+        
+    def update_components(self):
+        # Clear existing components
+        self.clear_items()
+        
+        # Calculate page boundaries
+        start_idx = self.page * 25
+        end_idx = min(start_idx + 25, len(self.available_times))
+        page_times = self.available_times[start_idx:end_idx]
+        
+        # Add time select dropdown
+        self.add_item(TimeSelect(page_times, self.page, self.max_page))
+        
+        # Add pagination buttons if needed
+        if self.max_page > 0:
+            # Previous page button
+            prev_button = discord.ui.Button(
+                label="◀️", 
+                style=discord.ButtonStyle.secondary, 
+                custom_id="prev_page", 
+                row=1,
+                disabled=self.page == 0
+            )
+            prev_button.callback = self.prev_page_callback
+            self.add_item(prev_button)
+            
+            # Next page button
+            next_button = discord.ui.Button(
+                label="▶️", 
+                style=discord.ButtonStyle.secondary, 
+                custom_id="next_page", 
+                row=1,
+                disabled=self.page >= self.max_page
+            )
+            next_button.callback = self.next_page_callback
+            self.add_item(next_button)
         
         # Add clear reservation button if user has existing booking
-        if current_time:
-            clear_button = discord.ui.Button(label="Clear Reservation", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+        if self.current_time:
+            clear_button = discord.ui.Button(
+                label="Clear Reservation", 
+                style=discord.ButtonStyle.danger, 
+                emoji="🗑️", 
+                row=2 if self.max_page > 0 else 1
+            )
             clear_button.callback = self.clear_reservation_callback
             self.add_item(clear_button)
         
         # Add back button
-        back_button = discord.ui.Button(label="Back", style=discord.ButtonStyle.secondary, emoji="⬅️", row=1)
+        back_button = discord.ui.Button(
+            label="Back", 
+            style=discord.ButtonStyle.secondary, 
+            emoji="⬅️", 
+            row=2 if self.max_page > 0 else 1
+        )
         back_button.callback = self.back_button_callback
         self.add_item(back_button)
+
+    async def prev_page_callback(self, interaction: discord.Interaction):
+        self.page = max(0, self.page - 1)
+        self.update_components()
+        await interaction.response.edit_message(view=self)
+    
+    async def next_page_callback(self, interaction: discord.Interaction):
+        self.page = min(self.max_page, self.page + 1)
+        self.update_components()
+        await interaction.response.edit_message(view=self)
 
     async def back_button_callback(self, interaction: discord.Interaction):
         await self.cog.show_filtered_user_select(interaction, self.activity_name)
@@ -577,16 +635,20 @@ class TimeSelectView(discord.ui.View):
             item.disabled = True
 
 class TimeSelect(discord.ui.Select):
-    def __init__(self, available_times):
+    def __init__(self, available_times, page=0, max_page=0):
         options = []
-        for time_slot in available_times[:25]: # Discord limit
+        for time_slot in available_times: # Already sliced in TimeSelectView
             options.append(discord.SelectOption(
                 label=time_slot,
                 value=time_slot
             ))
         
+        placeholder = "Select an available time slot..."
+        if max_page > 0:
+            placeholder = f"Select time... (Page {page + 1}/{max_page + 1})"
+        
         super().__init__(
-            placeholder="Select an available time slot...",
+            placeholder=placeholder,
             options=options,
             min_values=1,
             max_values=1
