@@ -33,7 +33,7 @@ class UserFilterModal(discord.ui.Modal, title="Filter Users"):
 
 class FilteredUserSelectView(discord.ui.View):
     def __init__(self, bot, cog, activity_name, users, booked_times, page=0):
-        super().__init__(timeout=300)
+        super().__init__(timeout=7200)
         self.bot = bot
         self.cog = cog
         self.activity_name = activity_name
@@ -220,7 +220,7 @@ class FilteredUserSelectView(discord.ui.View):
 
 class ClearConfirmationView(discord.ui.View):
     def __init__(self, bot, cog, activity_name, is_global_admin, alliance_ids):
-        super().__init__(timeout=60)
+        super().__init__(timeout=7200)
         self.bot = bot
         self.cog = cog
         self.activity_name = activity_name
@@ -300,7 +300,7 @@ class ClearConfirmationView(discord.ui.View):
 
 class ActivitySelectView(discord.ui.View):
     def __init__(self, bot, cog, action_type):
-        super().__init__(timeout=60)
+        super().__init__(timeout=7200)
         self.bot = bot
         self.cog = cog
         self.action_type = action_type  # "update_names" or "clear_reservations"
@@ -545,7 +545,7 @@ class ChannelConfigurationView(discord.ui.View):
 
 class TimeSelectView(discord.ui.View):
     def __init__(self, bot, cog, activity_name, fid, available_times, current_time=None, page=0):
-        super().__init__(timeout=300)
+        super().__init__(timeout=7200)
         self.bot = bot
         self.cog = cog
         self.activity_name = activity_name
@@ -1284,7 +1284,7 @@ class MinisterMenu(commands.Cog):
         """Show channel selection menu for clearing configurations"""
         class ClearChannelsConfirmView(discord.ui.View):
             def __init__(self, parent_cog):
-                super().__init__(timeout=60)
+                super().__init__(timeout=7200)
                 self.parent_cog = parent_cog
                 
             @discord.ui.select(
