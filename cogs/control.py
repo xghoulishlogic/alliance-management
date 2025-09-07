@@ -76,6 +76,24 @@ class Control(commands.Cog):
             self.cursor_settings.execute("INSERT INTO auto (value) VALUES (1)")
         self.conn_settings.commit()
         
+        # Add control settings columns to alliancesettings if they don't exist
+        self.cursor_alliance.execute("PRAGMA table_info(alliancesettings)")
+        columns = [col[1] for col in self.cursor_alliance.fetchall()]
+        
+        if 'auto_remove_on_transfer' not in columns:
+            self.cursor_alliance.execute("""
+                ALTER TABLE alliancesettings 
+                ADD COLUMN auto_remove_on_transfer INTEGER DEFAULT 0
+            """)
+        
+        if 'notify_on_transfer' not in columns:
+            self.cursor_alliance.execute("""
+                ALTER TABLE alliancesettings 
+                ADD COLUMN notify_on_transfer INTEGER DEFAULT 0
+            """)
+        
+        self.conn_alliance.commit()
+        
         self.db_lock = asyncio.Lock()
         self.proxies = self.load_proxies()
         self.alliance_tasks = {}
@@ -91,6 +109,28 @@ class Control(commands.Cog):
             with open('proxy.txt', 'r') as f:
                 proxies = [f"socks4://{line.strip()}" for line in f if line.strip()]
         return proxies
+    
+    def get_auto_remove_setting(self, alliance_id):
+        """Get the auto_remove_on_transfer setting for a specific alliance"""
+        self.cursor_alliance.execute("""
+            SELECT auto_remove_on_transfer 
+            FROM alliancesettings 
+            WHERE alliance_id = ?
+        """, (alliance_id,))
+        result = self.cursor_alliance.fetchone()
+        # Default to 0 (disabled) if not set
+        return result[0] if result and result[0] is not None else 0
+    
+    def get_transfer_notification_setting(self, alliance_id):
+        """Get the notify_on_transfer setting for a specific alliance"""
+        self.cursor_alliance.execute("""
+            SELECT notify_on_transfer 
+            FROM alliancesettings 
+            WHERE alliance_id = ?
+        """, (alliance_id,))
+        result = self.cursor_alliance.fetchone()
+        # Default to 0 (disabled) if not set
+        return result[0] if result and result[0] is not None else 0
 
     async def fetch_user_data(self, fid, proxy=None):
         """Fetch user data using the centralized login handler"""
@@ -277,9 +317,30 @@ class Control(commands.Cog):
                                 self.conn_users.commit()
 
                             if old_kid != new_kid:
-                                kid_changes.append(f"👤 **{old_nickname}** has transferred to a new state\n🔄 Old State: `{old_kid}`\n🆕 New State: `{new_kid}`")
-                                self.cursor_users.execute("UPDATE users SET kid = ? WHERE fid = ?", (new_kid, fid))
-                                self.conn_users.commit()
+                                kid_changes.append(f"👤 {old_nickname} has transferred to a new state\n🔄 Old State: {old_kid}\n🆕 New State: {new_kid}")
+                                
+                                # Check if auto-removal is enabled for this alliance
+                                auto_remove = self.get_auto_remove_setting(alliance_id)
+                                notify_on_transfer = self.get_transfer_notification_setting(alliance_id)
+                                
+                                if auto_remove:
+                                    # Remove user from alliance when auto-removal is enabled
+                                    self.cursor_users.execute("DELETE FROM users WHERE fid = ?", (fid,))
+                                    self.conn_users.commit()
+                                    
+                                    # Only notify if notifications are enabled for auto-removal
+                                    if notify_on_transfer:
+                                        self.cursor_settings.execute("SELECT id FROM admin WHERE is_initial = 1")
+                                        admin_data = self.cursor_settings.fetchone()
+                                        
+                                        if admin_data:
+                                            user = await self.bot.fetch_user(admin_data[0])
+                                            if user:
+                                                await user.send(f"❌ {old_nickname} ({fid}) was removed from the users table due to state transfer.")
+                                else:
+                                    # Just update kid without removing (default behavior)
+                                    self.cursor_users.execute("UPDATE users SET kid = ? WHERE fid = ?", (new_kid, fid))
+                                    self.conn_users.commit()
 
                             if new_furnace_lv != old_furnace_lv:
                                 new_furnace_display = level_mapping.get(new_furnace_lv, new_furnace_lv)
