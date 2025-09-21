@@ -845,11 +845,11 @@ if __name__ == "__main__":
             
     # Handle update/repair logic
     if "--repair" in sys.argv:
-        asyncio.run(check_and_update_files())
+        pass  # skipping update check on Render
     elif "--no-update" in sys.argv:
         print(F.YELLOW + "Update check skipped due to --no-update flag." + R)
     else:
-        asyncio.run(check_and_update_files())
+        pass  # skipping update check on Render
             
     import discord
     from discord.ext import commands
