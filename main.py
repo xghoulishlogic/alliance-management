@@ -1003,3 +1003,19 @@ if __name__ == "__main__":
 
     if __name__ == "__main__":
         asyncio.run(main())
+
+# adding dummy HTTP endpoint
+from flask import Flask
+import threading
+
+app = Flask("health")
+
+@app.route("/")
+def home():
+    return "Bot is running", 200
+
+def run_flask():
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+
+threading.Thread(target=run_flask).start()
+
