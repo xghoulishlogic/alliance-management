@@ -876,15 +876,11 @@ if __name__ == "__main__":
 
     init(autoreset=True)
 
-    token_file = "bot_token.txt"
-    if not os.path.exists(token_file):
-        bot_token = input("Enter the bot token: ")
-        with open(token_file, "w") as f:
-            f.write(bot_token)
-    else:
-        with open(token_file, "r") as f:
-            bot_token = f.read().strip()
 
+    bot_token = os.getenv("BOT_TOKEN")
+    if not bot_token:
+        raise ValueError("No bot token found. Set BOT_TOKEN in Render environment variables.")
+        
     if not os.path.exists("db"):
         os.makedirs("db")
         
